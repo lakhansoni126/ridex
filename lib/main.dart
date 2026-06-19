@@ -8,6 +8,7 @@ import 'features/ride/presentation/home_dashboard_screen.dart';
 import 'features/ride/presentation/ride_dashboard_screen.dart';
 import 'features/history/presentation/history_screen.dart';
 import 'features/map/presentation/map_screen.dart';
+import 'features/ride/presentation/ride_replay_screen.dart';
 import 'database/database_service.dart';
 
 // Global instance for now, can be moved to Riverpod later
@@ -44,6 +45,10 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/map',
         builder: (context, state) => const MapScreen(),
+      ),
+      GoRoute(
+        path: '/replay',
+        builder: (context, state) => const RideReplayScreen(),
       ),
     ],
   );

@@ -62,6 +62,26 @@ class HistoryScreen extends StatelessWidget {
                       ),
                     ],
                   ),
+                  PopupMenuButton<String>(
+                    icon: const Icon(Icons.more_vert, color: Colors.white),
+                    onSelected: (value) {
+                      if (value == 'replay') {
+                        context.push('/replay');
+                      } else if (value == 'export') {
+                        // Call ExportService.exportRideToJson() here
+                      }
+                    },
+                    itemBuilder: (context) => [
+                      const PopupMenuItem(
+                        value: 'replay',
+                        child: Text('Play Replay'),
+                      ),
+                      const PopupMenuItem(
+                        value: 'export',
+                        child: Text('Export JSON'),
+                      ),
+                    ],
+                  ),
                 ],
               ),
             ),
