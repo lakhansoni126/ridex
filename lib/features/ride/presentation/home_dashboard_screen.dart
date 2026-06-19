@@ -16,7 +16,20 @@ class HomeDashboardScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const SizedBox(height: 40),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.map, color: Colors.white),
+                    onPressed: () => context.push('/map'),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.history, color: Colors.white),
+                    onPressed: () => context.push('/history'),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 20),
               Text(
                 'Ready to ride?',
                 style: theme.textTheme.displayMedium,

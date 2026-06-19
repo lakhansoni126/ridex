@@ -6,6 +6,8 @@ import 'package:google_fonts/google_fonts.dart';
 import 'core/theme/app_theme.dart';
 import 'features/ride/presentation/home_dashboard_screen.dart';
 import 'features/ride/presentation/ride_dashboard_screen.dart';
+import 'features/history/presentation/history_screen.dart';
+import 'features/map/presentation/map_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -24,6 +26,14 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/ride',
         builder: (context, state) => const RideDashboardScreen(),
+      ),
+      GoRoute(
+        path: '/history',
+        builder: (context, state) => const HistoryScreen(),
+      ),
+      GoRoute(
+        path: '/map',
+        builder: (context, state) => const MapScreen(),
       ),
     ],
   );
