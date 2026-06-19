@@ -8,10 +8,20 @@ import 'features/ride/presentation/home_dashboard_screen.dart';
 import 'features/ride/presentation/ride_dashboard_screen.dart';
 import 'features/history/presentation/history_screen.dart';
 import 'features/map/presentation/map_screen.dart';
+import 'database/database_service.dart';
+
+// Global instance for now, can be moved to Riverpod later
+final dbService = DatabaseService();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  // Initialize Isar here if needed
+  
+  try {
+    await dbService.init();
+  } catch (e) {
+    debugPrint('Database initialization failed: $e');
+  }
+  
   runApp(const ProviderScope(child: RideAnalyticsApp()));
 }
 

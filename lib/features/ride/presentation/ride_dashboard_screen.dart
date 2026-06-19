@@ -1,24 +1,37 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/widgets/glass_container.dart';
+import '../domain/ride_engine.dart';
 
-class RideDashboardScreen extends StatefulWidget {
+class RideDashboardScreen extends ConsumerStatefulWidget {
   const RideDashboardScreen({super.key});
 
   @override
-  State<RideDashboardScreen> createState() => _RideDashboardScreenState();
+  ConsumerState<RideDashboardScreen> createState() => _RideDashboardScreenState();
 }
 
-class _RideDashboardScreenState extends State<RideDashboardScreen> {
-  // Mock data for UI layout
-  double speed = 104.2;
-  double distance = 12.4;
-  String duration = '00:14:32';
-  double topSpeed = 122.0;
+class _RideDashboardScreenState extends ConsumerState<RideDashboardScreen> {
+  @override
+  void initState() {
+    super.initState();
+    // Start the ride when the screen loads
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.read(rideEngineProvider.notifier).startRide();
+    });
+  }
+
+  String _formatDuration(int seconds) {
+    final h = seconds ~/ 3600;
+    final m = (seconds % 3600) ~/ 60;
+    final s = seconds % 60;
+    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  }
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final rideState = ref.watch(rideEngineProvider);
     
     return Scaffold(
       body: SafeArea(
@@ -32,20 +45,31 @@ class _RideDashboardScreenState extends State<RideDashboardScreen> {
                 children: [
                   IconButton(
                     icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
-                    onPressed: () => context.pop(),
+                    onPressed: () {
+                      ref.read(rideEngineProvider.notifier).stopRide();
+                      context.pop();
+                    },
                   ),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     decoration: BoxDecoration(
-                      color: Colors.red.withOpacity(0.2),
+                      color: rideState.isRecording ? Colors.red.withOpacity(0.2) : Colors.grey.withOpacity(0.2),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: Colors.red.withOpacity(0.5)),
+                      border: Border.all(
+                        color: rideState.isRecording ? Colors.red.withOpacity(0.5) : Colors.grey.withOpacity(0.5)
+                      ),
                     ),
-                    child: const Row(
+                    child: Row(
                       children: [
-                        Icon(Icons.circle, color: Colors.red, size: 12),
-                        SizedBox(width: 8),
-                        Text('REC', style: TextStyle(color: Colors.red, fontWeight: FontWeight.bold)),
+                        Icon(Icons.circle, color: rideState.isRecording ? Colors.red : Colors.grey, size: 12),
+                        const SizedBox(width: 8),
+                        Text(
+                          rideState.isRecording ? 'REC' : 'STOPPED', 
+                          style: TextStyle(
+                            color: rideState.isRecording ? Colors.red : Colors.grey, 
+                            fontWeight: FontWeight.bold
+                          )
+                        ),
                       ],
                     ),
                   ),
@@ -56,7 +80,7 @@ class _RideDashboardScreenState extends State<RideDashboardScreen> {
                 child: Column(
                   children: [
                     Text(
-                      speed.toStringAsFixed(1),
+                      rideState.currentSpeed.toStringAsFixed(1),
                       style: theme.textTheme.displayLarge?.copyWith(
                         fontSize: 120,
                         height: 1.0,
@@ -75,18 +99,18 @@ class _RideDashboardScreenState extends State<RideDashboardScreen> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceAround,
                   children: [
-                    _buildMetric(context, 'DISTANCE', '${distance.toStringAsFixed(1)} km'),
+                    _buildMetric(context, 'DISTANCE', '${rideState.distance.toStringAsFixed(1)} km'),
                     Container(width: 1, height: 40, color: Colors.white24),
-                    _buildMetric(context, 'DURATION', duration),
+                    _buildMetric(context, 'DURATION', _formatDuration(rideState.durationSeconds)),
                     Container(width: 1, height: 40, color: Colors.white24),
-                    _buildMetric(context, 'TOP', '${topSpeed.toStringAsFixed(0)} km/h'),
+                    _buildMetric(context, 'TOP', '${rideState.topSpeed.toStringAsFixed(0)} km/h'),
                   ],
                 ),
               ),
               const SizedBox(height: 32),
               ElevatedButton(
                 onPressed: () {
-                  // Stop ride logic
+                  ref.read(rideEngineProvider.notifier).stopRide();
                   context.pop();
                 },
                 style: ElevatedButton.styleFrom(
