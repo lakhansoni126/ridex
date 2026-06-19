@@ -1,0 +1,57 @@
+name: ride_analytics_app
+description: A premium offline-first motorcycle ride analytics application.
+publish_to: 'none' # Remove this line if you wish to publish to pub.dev
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # Routing
+  go_router: ^12.1.1
+
+  # Local Database
+  isar: ^3.1.0
+  isar_flutter_libs: ^3.1.0
+  path_provider: ^2.1.1
+
+  # Location & GPS
+  geolocator: ^10.1.0
+  permission_handler: ^11.1.0
+
+  # Map Integration
+  google_maps_flutter: ^2.5.0
+
+  # Utilities
+  freezed_annotation: ^2.4.1
+  json_annotation: ^4.8.1
+  intl: ^0.18.1
+  google_fonts: ^6.1.0 # For luxury typography
+  share_plus: ^7.2.1
+
+  # UI Elements
+  glassmorphism: ^3.0.0 # Or create custom glassmorphism
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Code Generation
+  build_runner: ^2.4.7
+  freezed: ^2.4.5
+  json_serializable: ^8.0.0
+  riverpod_generator: ^2.3.9
+  isar_generator: ^3.1.0
+
+  flutter_lints: ^3.0.1
+
+flutter:
+  uses-material-design: true
