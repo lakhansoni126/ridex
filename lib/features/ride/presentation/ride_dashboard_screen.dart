@@ -93,51 +93,150 @@ class _RideDashboardScreenState extends ConsumerState<RideDashboardScreen> {
                     ),
                   ],
                 ),
-              ),
-              const Spacer(),
-              GlassContainer(
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceAround,
-                  children: [
-                    _buildMetric(context, 'DISTANCE', '${rideState.distance.toStringAsFixed(1)} km'),
-                    Container(width: 1, height: 40, color: Colors.white24),
-                    _buildMetric(context, 'DURATION', _formatDuration(rideState.durationSeconds)),
-                    Container(width: 1, height: 40, color: Colors.white24),
-                    _buildMetric(context, 'TOP', '${rideState.topSpeed.toStringAsFixed(0)} km/h'),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 32),
+              const Icon(Icons.warning_amber_rounded, size: 100, color: Colors.white),
+              const SizedBox(height: 20),
+              const Text('CRASH DETECTED', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 10),
+              const Text('Sending SOS in 30 seconds...', style: TextStyle(fontSize: 18)),
+              const SizedBox(height: 40),
               ElevatedButton(
-                onPressed: () {
-                  ref.read(rideEngineProvider.notifier).stopRide();
-                  context.pop();
-                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.white,
-                  foregroundColor: Colors.black,
+                  foregroundColor: Colors.red,
+                  padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
                 ),
-                child: const Text('FINISH RIDE', style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 1.5)),
+                onPressed: () {
+                  ref.read(rideEngineProvider.notifier).cancelSOS();
+                },
+                child: const Text('I AM OKAY - CANCEL', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
               ),
+              const SizedBox(height: 20),
+              TextButton(
+                onPressed: () {
+                   _triggerSosSms(context, rideState.lastPosition?.latitude ?? 0, rideState.lastPosition?.longitude ?? 0);
+                   ref.read(rideEngineProvider.notifier).cancelSOS();
+                },
+                child: const Text('SEND SOS NOW', style: TextStyle(color: Colors.white70)),
+              )
             ],
           ),
+        ),
+      );
+    }
+
+    return Scaffold(
+      body: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(24.0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  if (rideState.isPaused)
+                    const Text('AUTO-PAUSED', style: TextStyle(color: Colors.orangeAccent, fontWeight: FontWeight.bold, letterSpacing: 2))
+                  else if (rideState.weatherCondition != null)
+                    Text('${rideState.temperature}°C • ${rideState.weatherCondition}', style: const TextStyle(color: Colors.white70))
+                  else
+                    const SizedBox.shrink(),
+                  
+                  IconButton(
+                    icon: const Icon(Icons.map, color: Colors.white),
+                    onPressed: () => context.push('/map'),
+                  ),
+                ],
+              ),
+            ),
+            const Spacer(),
+            // Speedometer
+            Text(
+              rideState.currentSpeed.toStringAsFixed(0),
+              style: const TextStyle(
+                fontSize: 140,
+                fontWeight: FontWeight.bold,
+                height: 1.0,
+                letterSpacing: -5,
+              ),
+            ),
+            Text(
+              'KM/H',
+              style: TextStyle(
+                fontSize: 24,
+                color: theme.colorScheme.primary,
+                letterSpacing: 4,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const Spacer(),
+            // Analytics Grid
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0),
+              child: GlassContainer(
+                child: Padding(
+                  padding: const EdgeInsets.all(20.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      _buildMetric(context, 'TRIP', '${rideState.distance.toStringAsFixed(1)} km'),
+                      _buildMetric(context, 'TIME', _formatDuration(rideState.durationSeconds)),
+                      _buildMetric(context, 'LEAN', '${rideState.currentLeanAngle.toStringAsFixed(0)}°'),
+                      _buildMetric(context, 'TOP', '${rideState.topSpeed.toStringAsFixed(0)} km/h'),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 40),
+            // Finish Button
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
+              child: GestureDetector(
+                onTap: () async {
+                  await ref.read(rideEngineProvider.notifier).stopRide();
+                  if (context.mounted) {
+                    context.pop();
+                  }
+                },
+                child: GlassContainer(
+                  padding: const EdgeInsets.symmetric(vertical: 20),
+                  borderRadius: 30,
+                  child: const Center(
+                    child: Text(
+                      'FINISH RIDE',
+                      style: TextStyle(
+                        color: Colors.redAccent,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 2,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
   }
 
   Widget _buildMetric(BuildContext context, String label, String value) {
-    final theme = Theme.of(context);
     return Column(
       children: [
         Text(
-          label,
-          style: theme.textTheme.bodyMedium?.copyWith(fontSize: 10, letterSpacing: 2),
-        ),
-        const SizedBox(height: 8),
-        Text(
           value,
-          style: theme.textTheme.titleLarge?.copyWith(fontSize: 20),
+          style: Theme.of(context).textTheme.titleLarge?.copyWith(
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          label,
+          style: const TextStyle(
+            color: Colors.white54,
+            fontSize: 12,
+            letterSpacing: 1,
+          ),
         ),
       ],
     );

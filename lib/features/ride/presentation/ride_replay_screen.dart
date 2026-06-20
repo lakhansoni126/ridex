@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../../../shared/widgets/glass_container.dart';
 
 class RideReplayScreen extends StatefulWidget {
@@ -17,6 +18,16 @@ class _RideReplayScreenState extends State<RideReplayScreen> {
 
   @override
   Widget build(BuildContext context) {
+    // Mock elevation data for demonstration
+    final mockElevationPoints = [
+      const FlSpot(0, 100),
+      const FlSpot(1, 120),
+      const FlSpot(2, 130),
+      const FlSpot(3, 110),
+      const FlSpot(4, 90),
+      const FlSpot(5, 140),
+    ];
+
     return Scaffold(
       body: Stack(
         children: [
@@ -74,7 +85,34 @@ class _RideReplayScreenState extends State<RideReplayScreen> {
                   const Spacer(),
                   GlassContainer(
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
+                        // Elevation Profile Chart
+                        SizedBox(
+                          height: 80,
+                          child: LineChart(
+                            LineChartData(
+                              gridData: const FlGridData(show: false),
+                              titlesData: const FlTitlesData(show: false),
+                              borderData: FlBorderData(show: false),
+                              lineBarsData: [
+                                LineChartBarData(
+                                  spots: mockElevationPoints,
+                                  isCurved: true,
+                                  color: Colors.blueAccent,
+                                  barWidth: 2,
+                                  isStrokeCapRound: true,
+                                  dotData: const FlDotData(show: false),
+                                  belowBarData: BarAreaData(
+                                    show: true,
+                                    color: Colors.blueAccent.withOpacity(0.2),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ),
+                        const SizedBox(height: 10),
                         Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [

@@ -1,14 +1,17 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/widgets/glass_container.dart';
+import '../../ride/domain/ride_engine.dart';
 
-class HomeDashboardScreen extends StatelessWidget {
+class HomeDashboardScreen extends ConsumerWidget {
   const HomeDashboardScreen({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    
+    final isRecording = ref.watch(rideEngineProvider).isRecording;
+
     return Scaffold(
       body: SafeArea(
         child: Padding(
@@ -16,17 +19,39 @@ class HomeDashboardScreen extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Top Bar Navigation
               Row(
-                mainAxisAlignment: MainAxisAlignment.end,
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  IconButton(
-                    icon: const Icon(Icons.map, color: Colors.white),
-                    onPressed: () => context.push('/map'),
+                  GlassContainer(
+                    padding: const EdgeInsets.all(12),
+                    borderRadius: 16,
+                    child: IconButton(
+                      icon: const Icon(Icons.two_wheeler, color: Colors.white),
+                      onPressed: () => context.push('/garage'),
+                    ),
                   ),
-                  IconButton(
-                    icon: const Icon(Icons.history, color: Colors.white),
-                    onPressed: () => context.push('/history'),
-                  ),
+                  Row(
+                    children: [
+                      GlassContainer(
+                        padding: const EdgeInsets.all(12),
+                        borderRadius: 16,
+                        child: IconButton(
+                          icon: const Icon(Icons.map_outlined, color: Colors.white),
+                          onPressed: () => context.push('/map'),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      GlassContainer(
+                        padding: const EdgeInsets.all(12),
+                        borderRadius: 16,
+                        child: IconButton(
+                          icon: const Icon(Icons.history, color: Colors.white),
+                          onPressed: () => context.push('/history'),
+                        ),
+                      ),
+                    ],
+                  )
                 ],
               ),
               const SizedBox(height: 20),

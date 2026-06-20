@@ -2,37 +2,63 @@ import 'dart:async';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../services/location_service.dart';
+import '../../../services/imu_service.dart';
+import '../../../services/weather_service.dart';
 import '../../../database/database_service.dart';
 import '../../../database/models.dart';
 import 'ride_state.dart';
-import '../../../main.dart'; // To access dbService instance
+import '../../../main.dart'; 
 
 final locationServiceProvider = Provider<LocationService>((ref) {
   return LocationService();
 });
 
 final rideEngineProvider = StateNotifierProvider<RideEngine, RideState>((ref) {
-  return RideEngine(ref.watch(locationServiceProvider), dbService);
+  return RideEngine(ref.watch(locationServiceProvider), ref.watch(imuServiceProvider), dbService);
 });
 
 class RideEngine extends StateNotifier<RideState> {
   final LocationService _locationService;
+  final ImuService _imuService;
   final DatabaseService _dbService;
+  
   StreamSubscription<Position>? _positionSubscription;
   Timer? _durationTimer;
   DateTime? _startTime;
+  int _stationarySeconds = 0;
 
-  RideEngine(this._locationService, this._dbService) : super(const RideState());
+  RideEngine(this._locationService, this._imuService, this._dbService) : super(const RideState());
 
   Future<void> startRide() async {
     final hasPermission = await _locationService.requestPermissions();
     if (!hasPermission) return;
 
     _startTime = DateTime.now();
-    state = const RideState(isRecording: true);
+    
+    // Attempt to fetch weather
+    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
+    final weather = await WeatherService.fetchWeather(pos.latitude, pos.longitude);
+
+    state = const RideState(isRecording: true).copyWith(
+      weatherCondition: weather?.condition,
+      temperature: weather?.temperature,
+    );
+
+    _imuService.onCrashDetected = (gForce) {
+      if (!state.hasCrashed) {
+        state = state.copyWith(hasCrashed: true);
+      }
+    };
+    _imuService.startTracking();
     
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      state = state.copyWith(durationSeconds: state.durationSeconds + 1);
+      if (!state.isPaused) {
+        state = state.copyWith(
+          durationSeconds: state.durationSeconds + 1,
+          currentLeanAngle: _imuService.currentLeanAngle,
+          maxLeanAngle: _imuService.maxLeanAngle,
+        );
+      }
     });
 
     _positionSubscription = _locationService.getPositionStream().listen((Position position) {
@@ -44,6 +70,22 @@ class RideEngine extends StateNotifier<RideState> {
     if (!state.isRecording) return;
 
     final speedKmh = position.speed * 3.6;
+
+    // Auto-pause logic
+    if (speedKmh < 3.0) {
+      _stationarySeconds++;
+      if (_stationarySeconds > 10 && !state.isPaused) {
+        state = state.copyWith(isPaused: true, currentSpeed: 0.0);
+      }
+    } else {
+      _stationarySeconds = 0;
+      if (state.isPaused) {
+        state = state.copyWith(isPaused: false);
+      }
+    }
+
+    if (state.isPaused) return;
+
     final newTopSpeed = speedKmh > state.topSpeed ? speedKmh : state.topSpeed;
     
     double addedDistance = 0.0;
@@ -68,20 +110,27 @@ class RideEngine extends StateNotifier<RideState> {
     );
   }
 
+  void cancelSOS() {
+    state = state.copyWith(hasCrashed: false);
+  }
+
   Future<void> stopRide() async {
     if (!state.isRecording) return;
     
     _durationTimer?.cancel();
     _positionSubscription?.cancel();
+    _imuService.stopTracking();
     
-    // Construct the Ride object
     final ride = Ride()
       ..startTime = _startTime ?? DateTime.now()
       ..endTime = DateTime.now()
       ..distance = state.distance
       ..durationSeconds = state.durationSeconds.toDouble()
       ..avgSpeed = (state.distance / (state.durationSeconds / 3600)).clamp(0, state.topSpeed)
-      ..topSpeed = state.topSpeed;
+      ..topSpeed = state.topSpeed
+      ..maxLeanAngle = state.maxLeanAngle
+      ..weatherCondition = state.weatherCondition
+      ..temperatureCelsius = state.temperature;
 
     final points = state.routePoints.map((p) => RidePoint()
       ..latitude = p.latitude
@@ -94,17 +143,16 @@ class RideEngine extends StateNotifier<RideState> {
     ).toList();
 
     ride.points.addAll(points);
-
-    // Save to Database
     await _dbService.saveRide(ride);
 
-    state = const RideState(); // Reset state
+    state = const RideState(); 
   }
 
   @override
   void dispose() {
     _durationTimer?.cancel();
     _positionSubscription?.cancel();
+    _imuService.stopTracking();
     super.dispose();
   }
 }
