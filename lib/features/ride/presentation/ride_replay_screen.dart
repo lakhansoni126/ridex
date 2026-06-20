@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../shared/widgets/glass_container.dart';
 
 class RideReplayScreen extends StatefulWidget {
@@ -20,12 +21,28 @@ class _RideReplayScreenState extends State<RideReplayScreen> {
       body: Stack(
         children: [
           // Background Map Placeholder
-          const GoogleMap(
-            initialCameraPosition: CameraPosition(
-              target: LatLng(37.7749, -122.4194),
-              zoom: 14.0,
+          FlutterMap(
+            options: const MapOptions(
+              initialCenter: LatLng(37.7749, -122.4194),
+              initialZoom: 14.0,
             ),
-            zoomControlsEnabled: false,
+            children: [
+              TileLayer(
+                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                userAgentPackageName: 'com.example.ridex',
+                tileBuilder: (context, tileWidget, tile) {
+                  return ColorFiltered(
+                    colorFilter: const ColorFilter.matrix([
+                      -1,  0,  0, 0, 255,
+                       0, -1,  0, 0, 255,
+                       0,  0, -1, 0, 255,
+                       0,  0,  0, 1,   0,
+                    ]),
+                    child: tileWidget,
+                  );
+                },
+              ),
+            ],
           ),
           
           SafeArea(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../database/models.dart';
 
 class PolylineEngine {
@@ -10,8 +11,8 @@ class PolylineEngine {
     return Colors.redAccent;
   }
 
-  static Set<Polyline> generateHeatmap(List<RidePoint> points) {
-    final Set<Polyline> polylines = {};
+  static List<Polyline> generateHeatmap(List<RidePoint> points) {
+    final List<Polyline> polylines = [];
     if (points.length < 2) return polylines;
 
     for (int i = 0; i < points.length - 1; i++) {
@@ -22,16 +23,14 @@ class PolylineEngine {
       
       polylines.add(
         Polyline(
-          polylineId: PolylineId('segment_$i'),
           points: [
             LatLng(p1.latitude, p1.longitude),
             LatLng(p2.latitude, p2.longitude),
           ],
           color: color,
-          width: 5,
-          startCap: Cap.roundCap,
-          endCap: Cap.roundCap,
-          jointType: JointType.round,
+          strokeWidth: 5,
+          strokeCap: StrokeCap.round,
+          strokeJoin: StrokeJoin.round,
         ),
       );
     }
