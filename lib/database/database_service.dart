@@ -8,7 +8,7 @@ class DatabaseService {
   Future<void> init() async {
     final dir = await getApplicationDocumentsDirectory();
     _isar = await Isar.open(
-      [RideSchema, RidePointSchema],
+      [BikeSchema, RideSchema, RidePointSchema],
       directory: dir.path,
     );
   }
