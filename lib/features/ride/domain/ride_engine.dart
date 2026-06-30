@@ -35,14 +35,22 @@ class RideEngine extends StateNotifier<RideState> {
 
     _startTime = DateTime.now();
     
-    // Attempt to fetch weather
-    final pos = await Geolocator.getCurrentPosition(desiredAccuracy: LocationAccuracy.low);
-    final weather = await WeatherService.fetchWeather(pos.latitude, pos.longitude);
+    // Attempt to fetch weather safely without blocking the ride start
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.low, 
+        timeLimit: const Duration(seconds: 5)
+      );
+      final weather = await WeatherService.fetchWeather(pos.latitude, pos.longitude);
 
-    state = const RideState(isRecording: true).copyWith(
-      weatherCondition: weather?.condition,
-      temperature: weather?.temperature,
-    );
+      state = const RideState(isRecording: true).copyWith(
+        weatherCondition: weather?.condition,
+        temperature: weather?.temperature,
+      );
+    } catch (e) {
+      // If GPS fails to lock quickly or throws, start recording anyway
+      state = const RideState(isRecording: true);
+    }
 
     _imuService.onCrashDetected = (gForce) {
       if (!state.hasCrashed) {
