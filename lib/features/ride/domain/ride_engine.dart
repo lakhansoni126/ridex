@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:geolocator/geolocator.dart';
 import '../../../services/location_service.dart';
@@ -7,7 +8,7 @@ import '../../../services/weather_service.dart';
 import '../../../database/database_service.dart';
 import '../../../database/models.dart';
 import 'ride_state.dart';
-import '../../../main.dart'; 
+import '../../../main.dart';
 
 final locationServiceProvider = Provider<LocationService>((ref) {
   return LocationService();
@@ -21,7 +22,7 @@ class RideEngine extends StateNotifier<RideState> {
   final LocationService _locationService;
   final ImuService _imuService;
   final DatabaseService _dbService;
-  
+
   StreamSubscription<Position>? _positionSubscription;
   Timer? _durationTimer;
   DateTime? _startTime;
@@ -30,36 +31,38 @@ class RideEngine extends StateNotifier<RideState> {
   RideEngine(this._locationService, this._imuService, this._dbService) : super(const RideState());
 
   Future<void> startRide() async {
+    // Prevent double-starting
+    if (state.isRecording) return;
+
     final hasPermission = await _locationService.requestPermissions();
-    if (!hasPermission) return;
-
-    _startTime = DateTime.now();
-    
-    // Attempt to fetch weather safely without blocking the ride start
-    try {
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low, 
-        timeLimit: const Duration(seconds: 5)
-      );
-      final weather = await WeatherService.fetchWeather(pos.latitude, pos.longitude);
-
-      state = const RideState(isRecording: true).copyWith(
-        weatherCondition: weather?.condition,
-        temperature: weather?.temperature,
-      );
-    } catch (e) {
-      // If GPS fails to lock quickly or throws, start recording anyway
-      state = const RideState(isRecording: true);
+    if (!hasPermission) {
+      debugPrint('RideEngine: Location permission denied');
+      return;
     }
 
+    _startTime = DateTime.now();
+    _stationarySeconds = 0;
+
+    // Start recording immediately — weather is optional
+    state = const RideState(isRecording: true);
+
+    // Attempt to fetch weather in the background (non-blocking)
+    _fetchWeatherInBackground();
+
+    // Set up crash detection
     _imuService.onCrashDetected = (gForce) {
-      if (!state.hasCrashed) {
+      if (mounted && !state.hasCrashed) {
         state = state.copyWith(hasCrashed: true);
       }
     };
     _imuService.startTracking();
-    
+
+    // Timer ticks every second
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) {
+        timer.cancel();
+        return;
+      }
       if (!state.isPaused) {
         state = state.copyWith(
           durationSeconds: state.durationSeconds + 1,
@@ -69,48 +72,74 @@ class RideEngine extends StateNotifier<RideState> {
       }
     });
 
-    _positionSubscription = _locationService.getPositionStream().listen((Position position) {
-      _processNewPosition(position);
-    });
+    // Subscribe to GPS stream
+    _positionSubscription = _locationService.getPositionStream().listen(
+      (Position position) {
+        _processNewPosition(position);
+      },
+      onError: (error) {
+        debugPrint('RideEngine: GPS stream error: $error');
+      },
+    );
+  }
+
+  Future<void> _fetchWeatherInBackground() async {
+    try {
+      final pos = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.low,
+        timeLimit: const Duration(seconds: 5),
+      );
+      final weather = await WeatherService.fetchWeather(pos.latitude, pos.longitude);
+      if (mounted && weather != null) {
+        state = state.copyWith(
+          weatherCondition: weather.condition,
+          temperature: weather.temperature,
+        );
+      }
+    } catch (e) {
+      debugPrint('RideEngine: Weather fetch failed (non-critical): $e');
+    }
   }
 
   void _processNewPosition(Position position) {
-    if (!state.isRecording) return;
+    if (!mounted || !state.isRecording) return;
 
-    final speedKmh = position.speed * 3.6;
+    final speedKmh = (position.speed * 3.6).clamp(0.0, 500.0);
 
-    // Auto-pause logic
-    if (speedKmh < 3.0) {
-      _stationarySeconds++;
-      if (_stationarySeconds > 10 && !state.isPaused) {
-        state = state.copyWith(isPaused: true, currentSpeed: 0.0);
-      }
-    } else {
-      _stationarySeconds = 0;
-      if (state.isPaused) {
-        state = state.copyWith(isPaused: false);
+    // Auto-pause logic: only after we have at least one GPS fix
+    if (state.lastPosition != null) {
+      if (speedKmh < 3.0) {
+        _stationarySeconds++;
+        if (_stationarySeconds > 10 && !state.isPaused) {
+          state = state.copyWith(isPaused: true, currentSpeed: 0.0);
+        }
+      } else {
+        _stationarySeconds = 0;
+        if (state.isPaused) {
+          state = state.copyWith(isPaused: false);
+        }
       }
     }
 
-    if (state.isPaused) return;
-
+    // Always update lastPosition and routePoints even when paused
+    // so the map always shows current location
     final newTopSpeed = speedKmh > state.topSpeed ? speedKmh : state.topSpeed;
-    
+
     double addedDistance = 0.0;
-    if (state.lastPosition != null) {
+    if (state.lastPosition != null && !state.isPaused) {
       addedDistance = Geolocator.distanceBetween(
         state.lastPosition!.latitude,
         state.lastPosition!.longitude,
         position.latitude,
         position.longitude,
-      ) / 1000.0; 
+      ) / 1000.0;
     }
 
     final newDistance = state.distance + addedDistance;
     final newPoints = List<Position>.from(state.routePoints)..add(position);
 
     state = state.copyWith(
-      currentSpeed: speedKmh,
+      currentSpeed: state.isPaused ? 0.0 : speedKmh,
       topSpeed: newTopSpeed,
       distance: newDistance,
       lastPosition: position,
@@ -119,41 +148,59 @@ class RideEngine extends StateNotifier<RideState> {
   }
 
   void cancelSOS() {
-    state = state.copyWith(hasCrashed: false);
+    if (mounted) {
+      state = state.copyWith(hasCrashed: false);
+    }
   }
 
   Future<void> stopRide() async {
     if (!state.isRecording) return;
-    
+
     _durationTimer?.cancel();
     _positionSubscription?.cancel();
     _imuService.stopTracking();
-    
-    final ride = Ride()
-      ..startTime = _startTime ?? DateTime.now()
-      ..endTime = DateTime.now()
-      ..distance = state.distance
-      ..durationSeconds = state.durationSeconds.toDouble()
-      ..avgSpeed = (state.distance / (state.durationSeconds / 3600)).clamp(0, state.topSpeed)
-      ..topSpeed = state.topSpeed
-      ..maxLeanAngle = state.maxLeanAngle
-      ..weatherCondition = state.weatherCondition
-      ..temperatureCelsius = state.temperature;
 
-    final points = state.routePoints.map((p) => RidePoint()
-      ..latitude = p.latitude
-      ..longitude = p.longitude
-      ..speed = p.speed * 3.6
-      ..heading = p.heading
-      ..altitude = p.altitude
-      ..accuracy = p.accuracy
-      ..timestamp = p.timestamp ?? DateTime.now()
-    ).toList();
+    // Only save if we have some data
+    if (state.routePoints.isNotEmpty || state.durationSeconds > 0) {
+      try {
+        final duration = state.durationSeconds.toDouble();
+        final avgSpeed = duration > 0
+            ? (state.distance / (duration / 3600)).clamp(0.0, state.topSpeed)
+            : 0.0;
 
-    ride.points.addAll(points);
-    await _dbService.saveRide(ride);
+        final ride = Ride()
+          ..startTime = _startTime ?? DateTime.now()
+          ..endTime = DateTime.now()
+          ..distance = state.distance
+          ..durationSeconds = duration
+          ..avgSpeed = avgSpeed
+          ..topSpeed = state.topSpeed
+          ..maxLeanAngle = state.maxLeanAngle
+          ..weatherCondition = state.weatherCondition
+          ..temperatureCelsius = state.temperature;
 
-    state = const RideState(); 
+        final points = state.routePoints.map((p) => RidePoint()
+          ..latitude = p.latitude
+          ..longitude = p.longitude
+          ..speed = (p.speed * 3.6).clamp(0.0, 500.0)
+          ..heading = p.heading
+          ..altitude = p.altitude
+          ..accuracy = p.accuracy
+          ..timestamp = p.timestamp ?? DateTime.now()
+        ).toList();
+
+        // Add points to ride's IsarLinks collection
+        ride.points.addAll(points);
+        await _dbService.saveRide(ride);
+        debugPrint('RideEngine: Ride saved successfully with ${points.length} points');
+      } catch (e) {
+        debugPrint('RideEngine: Error saving ride: $e');
+      }
+    }
+
+    if (mounted) {
+      state = const RideState();
+    }
   }
 
   @override

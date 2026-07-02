@@ -20,7 +20,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   final MapController _mapController = MapController();
   StreamSubscription<Position>? _positionStream;
   LatLng? _currentLocation;
-  bool _hasCentered = false;
+  bool _mapReady = false;
 
   @override
   void initState() {
@@ -29,26 +29,56 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   }
 
   void _initLocation() async {
-    bool hasPermission = await Geolocator.checkPermission() == LocationPermission.always || 
-                         await Geolocator.checkPermission() == LocationPermission.whileInUse;
-    
-    if (!hasPermission) {
-      await Geolocator.requestPermission();
-    }
-
-    _positionStream = Geolocator.getPositionStream(
-      locationSettings: const LocationSettings(accuracy: LocationAccuracy.high)
-    ).listen((Position position) {
-      if (mounted) {
-        setState(() {
-          _currentLocation = LatLng(position.latitude, position.longitude);
-          if (!_hasCentered) {
-            _mapController.move(_currentLocation!, 16.0);
-            _hasCentered = true;
-          }
-        });
+    try {
+      final permission = await Geolocator.checkPermission();
+      if (permission == LocationPermission.denied) {
+        await Geolocator.requestPermission();
       }
-    });
+
+      // Get a quick initial fix
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          desiredAccuracy: LocationAccuracy.medium,
+          timeLimit: const Duration(seconds: 5),
+        );
+        if (mounted) {
+          setState(() {
+            _currentLocation = LatLng(pos.latitude, pos.longitude);
+          });
+          if (_mapReady) {
+            _mapController.move(_currentLocation!, 16.0);
+          }
+        }
+      } catch (_) {
+        // Initial fix timed out, we'll get it from the stream
+      }
+
+      // Start continuous stream
+      _positionStream = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+        ),
+      ).listen(
+        (Position position) {
+          if (mounted) {
+            final newLoc = LatLng(position.latitude, position.longitude);
+            final isFirstFix = _currentLocation == null;
+            setState(() {
+              _currentLocation = newLoc;
+            });
+            if (isFirstFix && _mapReady) {
+              _mapController.move(newLoc, 16.0);
+            }
+          }
+        },
+        onError: (e) {
+          debugPrint('MapScreen GPS error: $e');
+        },
+      );
+    } catch (e) {
+      debugPrint('MapScreen: Failed to init location: $e');
+    }
   }
 
   @override
@@ -61,22 +91,25 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   @override
   Widget build(BuildContext context) {
     final rideState = ref.watch(rideEngineProvider);
-    
+
+    // Build polylines from ride points
     final ridePoints = rideState.routePoints.map((p) => RidePoint()
       ..latitude = p.latitude
       ..longitude = p.longitude
       ..speed = p.speed * 3.6
     ).toList();
-
     final polylines = PolylineEngine.generateHeatmap(ridePoints);
-    
-    // Determine the blue dot position: prioritize the RideEngine if recording, else use the local Map location
+
+    // Determine blue dot position
     LatLng? markerPos;
     if (rideState.isRecording && rideState.lastPosition != null) {
       markerPos = LatLng(rideState.lastPosition!.latitude, rideState.lastPosition!.longitude);
     } else {
       markerPos = _currentLocation;
     }
+
+    // Determine initial center
+    final initialCenter = _currentLocation ?? const LatLng(20.5937, 78.9629); // Default to India
 
     return Scaffold(
       appBar: AppBar(
@@ -86,23 +119,31 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           icon: const Icon(Icons.arrow_back_ios),
           onPressed: () => context.pop(),
         ),
-        title: const Text('RIDE MAP'),
+        title: Text(rideState.isRecording ? 'LIVE MAP' : 'MAP'),
         centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.blueAccent,
         onPressed: () {
-          if (markerPos != null) {
-            _mapController.move(markerPos, 16.0);
+          final target = markerPos ?? _currentLocation;
+          if (target != null && _mapReady) {
+            _mapController.move(target, 16.0);
           }
         },
         child: const Icon(Icons.my_location, color: Colors.white),
       ),
       body: FlutterMap(
         mapController: _mapController,
-        options: const MapOptions(
-          initialCenter: LatLng(37.7749, -122.4194),
-          initialZoom: 14.0,
+        options: MapOptions(
+          initialCenter: initialCenter,
+          initialZoom: _currentLocation != null ? 16.0 : 5.0,
+          onMapReady: () {
+            _mapReady = true;
+            // Center on location once map is ready
+            if (_currentLocation != null) {
+              _mapController.move(_currentLocation!, 16.0);
+            }
+          },
         ),
         children: [
           TileLayer(
@@ -120,21 +161,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
               );
             },
           ),
-          PolylineLayer(
-            polylines: polylines,
-          ),
+          if (polylines.isNotEmpty)
+            PolylineLayer(polylines: polylines),
           if (markerPos != null)
             MarkerLayer(
               markers: [
                 Marker(
                   point: markerPos,
+                  width: 30,
+                  height: 30,
                   child: Container(
                     decoration: BoxDecoration(
                       color: Colors.blueAccent.withOpacity(0.3),
                       shape: BoxShape.circle,
+                      border: Border.all(color: Colors.blueAccent, width: 2),
                     ),
                     child: const Center(
-                      child: Icon(Icons.circle, color: Colors.blueAccent, size: 20),
+                      child: Icon(Icons.circle, color: Colors.blueAccent, size: 14),
                     ),
                   ),
                 ),

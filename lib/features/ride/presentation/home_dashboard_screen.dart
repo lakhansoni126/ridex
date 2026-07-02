@@ -3,6 +3,19 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../../shared/widgets/glass_container.dart';
 import '../../ride/domain/ride_engine.dart';
+import '../../../main.dart';
+
+// Provider that loads aggregate stats from the database
+final homeStatsProvider = FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
+  final count = await dbService.getRideCount();
+  final totalDist = await dbService.getTotalDistance();
+  final topSpeed = await dbService.getOverallTopSpeed();
+  return {
+    'count': count,
+    'totalDist': totalDist,
+    'topSpeed': topSpeed,
+  };
+});
 
 class HomeDashboardScreen extends ConsumerWidget {
   const HomeDashboardScreen({super.key});
@@ -10,7 +23,7 @@ class HomeDashboardScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final theme = Theme.of(context);
-    final isRecording = ref.watch(rideEngineProvider).isRecording;
+    final statsAsync = ref.watch(homeStatsProvider);
 
     return Scaffold(
       body: SafeArea(
@@ -102,13 +115,32 @@ class HomeDashboardScreen extends ConsumerWidget {
                 ),
               ),
               const Spacer(),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  _buildStat(context, '0', 'RIDES'),
-                  _buildStat(context, '0 km', 'TOTAL DIST'),
-                  _buildStat(context, '0 km/h', 'TOP SPEED'),
-                ],
+              // ── REAL STATS FROM DATABASE ──
+              statsAsync.when(
+                loading: () => Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildStat(context, '--', 'RIDES'),
+                    _buildStat(context, '-- km', 'TOTAL DIST'),
+                    _buildStat(context, '-- km/h', 'TOP SPEED'),
+                  ],
+                ),
+                error: (_, __) => Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildStat(context, '0', 'RIDES'),
+                    _buildStat(context, '0 km', 'TOTAL DIST'),
+                    _buildStat(context, '0 km/h', 'TOP SPEED'),
+                  ],
+                ),
+                data: (stats) => Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    _buildStat(context, '${stats['count']}', 'RIDES'),
+                    _buildStat(context, '${(stats['totalDist'] as double).toStringAsFixed(1)} km', 'TOTAL DIST'),
+                    _buildStat(context, '${(stats['topSpeed'] as double).toStringAsFixed(0)} km/h', 'TOP SPEED'),
+                  ],
+                ),
               ),
               const SizedBox(height: 40),
             ],
