@@ -80,11 +80,11 @@ jobs:
 
       - name: Find and Prepare APK
         run: |
-          mkdir -p output_apk
-          find build/app/outputs/ -name "*.apk" -exec cp {} output_apk/app-release.apk \;
+          mkdir -p /tmp/output_apk
+          find . -name "*.apk" -type f -exec cp {} /tmp/output_apk/app-release.apk \;
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ridex-release-apk
-          path: output_apk/app-release.apk
+          path: /tmp/output_apk/app-release.apk
