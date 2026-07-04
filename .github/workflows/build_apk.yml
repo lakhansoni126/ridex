@@ -29,6 +29,31 @@ jobs:
       - name: Install Dependencies
         run: flutter pub get
 
+      - name: Generate Android Project
+        run: flutter create --platforms android .
+
+      - name: Inject Android Permissions
+        run: |
+          python3 -c "
+          path = 'android/app/src/main/AndroidManifest.xml'
+          with open(path, 'r') as f:
+              content = f.read()
+          perms = '''
+              <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />
+              <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />
+              <uses-permission android:name=\"android.permission.ACCESS_BACKGROUND_LOCATION\" />
+              <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE\" />
+              <uses-permission android:name=\"android.permission.FOREGROUND_SERVICE_LOCATION\" />
+              <uses-permission android:name=\"android.permission.WAKE_LOCK\" />
+              <uses-permission android:name=\"android.permission.POST_NOTIFICATIONS\" />
+              <uses-permission android:name=\"android.permission.SEND_SMS\" />
+              <uses-permission android:name=\"android.permission.INTERNET\" />
+          '''
+          content = content.replace('<application', perms + '\n    <application')
+          with open(path, 'w') as f:
+              f.write(content)
+          "
+
       - name: Generate Code (Isar & Freezed)
         run: dart run build_runner build --delete-conflicting-outputs
 
