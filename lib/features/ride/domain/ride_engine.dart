@@ -26,30 +26,46 @@ class RideEngine extends StateNotifier<RideState> {
   StreamSubscription<Position>? _positionSubscription;
   Timer? _durationTimer;
   DateTime? _startTime;
-  int _stationarySeconds = 0;
+  int _stationaryTicks = 0;
 
   RideEngine(this._locationService, this._imuService, this._dbService) : super(const RideState());
 
   Future<void> startRide() async {
-    // Prevent double-starting
     if (state.isRecording) return;
 
+    debugPrint('RideEngine: Requesting permissions...');
     final hasPermission = await _locationService.requestPermissions();
     if (!hasPermission) {
-      debugPrint('RideEngine: Location permission denied');
+      debugPrint('RideEngine: ❌ Permission denied, ride will NOT start.');
       return;
     }
+    debugPrint('RideEngine: ✅ Permission granted.');
 
     _startTime = DateTime.now();
-    _stationarySeconds = 0;
+    _stationaryTicks = 0;
 
-    // Start recording immediately — weather is optional
+    // ── 1. Start recording IMMEDIATELY ──
     state = const RideState(isRecording: true);
+    debugPrint('RideEngine: 🟢 Ride started, isRecording=true');
 
-    // Attempt to fetch weather in the background (non-blocking)
-    _fetchWeatherInBackground();
+    // ── 2. Get an initial GPS fix so the map has a position right away ──
+    final initialPos = await _locationService.getCurrentPosition();
+    if (initialPos != null && mounted) {
+      debugPrint('RideEngine: 📍 Initial GPS fix: ${initialPos.latitude}, ${initialPos.longitude}');
+      state = state.copyWith(
+        lastPosition: initialPos,
+        routePoints: [initialPos],
+      );
+    } else {
+      debugPrint('RideEngine: ⚠️ No initial GPS fix (will get from stream)');
+    }
 
-    // Set up crash detection
+    // ── 3. Fetch weather in background (non-blocking) ──
+    if (initialPos != null) {
+      _fetchWeatherInBackground(initialPos.latitude, initialPos.longitude);
+    }
+
+    // ── 4. Start IMU tracking ──
     _imuService.onCrashDetected = (gForce) {
       if (mounted && !state.hasCrashed) {
         state = state.copyWith(hasCrashed: true);
@@ -57,12 +73,9 @@ class RideEngine extends StateNotifier<RideState> {
     };
     _imuService.startTracking();
 
-    // Timer ticks every second
+    // ── 5. Start duration timer ──
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
-      if (!mounted) {
-        timer.cancel();
-        return;
-      }
+      if (!mounted) { timer.cancel(); return; }
       if (!state.isPaused) {
         state = state.copyWith(
           durationSeconds: state.durationSeconds + 1,
@@ -72,29 +85,27 @@ class RideEngine extends StateNotifier<RideState> {
       }
     });
 
-    // Subscribe to GPS stream
+    // ── 6. Subscribe to GPS stream ──
     _positionSubscription = _locationService.getPositionStream().listen(
       (Position position) {
+        debugPrint('RideEngine: 📡 GPS update: ${position.latitude.toStringAsFixed(5)}, ${position.longitude.toStringAsFixed(5)}, speed=${(position.speed * 3.6).toStringAsFixed(1)} km/h');
         _processNewPosition(position);
       },
       onError: (error) {
-        debugPrint('RideEngine: GPS stream error: $error');
+        debugPrint('RideEngine: ❌ GPS stream error: $error');
       },
     );
   }
 
-  Future<void> _fetchWeatherInBackground() async {
+  Future<void> _fetchWeatherInBackground(double lat, double lon) async {
     try {
-      final pos = await Geolocator.getCurrentPosition(
-        desiredAccuracy: LocationAccuracy.low,
-        timeLimit: const Duration(seconds: 5),
-      );
-      final weather = await WeatherService.fetchWeather(pos.latitude, pos.longitude);
+      final weather = await WeatherService.fetchWeather(lat, lon);
       if (mounted && weather != null) {
         state = state.copyWith(
           weatherCondition: weather.condition,
           temperature: weather.temperature,
         );
+        debugPrint('RideEngine: 🌤️ Weather: ${weather.temperature}°C ${weather.condition}');
       }
     } catch (e) {
       debugPrint('RideEngine: Weather fetch failed (non-critical): $e');
@@ -106,25 +117,24 @@ class RideEngine extends StateNotifier<RideState> {
 
     final speedKmh = (position.speed * 3.6).clamp(0.0, 500.0);
 
-    // Auto-pause logic: only after we have at least one GPS fix
+    // Auto-pause logic: only kicks in after we already have a position
     if (state.lastPosition != null) {
       if (speedKmh < 3.0) {
-        _stationarySeconds++;
-        if (_stationarySeconds > 10 && !state.isPaused) {
+        _stationaryTicks++;
+        if (_stationaryTicks > 15 && !state.isPaused) {
           state = state.copyWith(isPaused: true, currentSpeed: 0.0);
+          debugPrint('RideEngine: ⏸️ Auto-paused (stationary for ${_stationaryTicks}s)');
         }
       } else {
-        _stationarySeconds = 0;
+        _stationaryTicks = 0;
         if (state.isPaused) {
           state = state.copyWith(isPaused: false);
+          debugPrint('RideEngine: ▶️ Auto-resumed');
         }
       }
     }
 
-    // Always update lastPosition and routePoints even when paused
-    // so the map always shows current location
-    final newTopSpeed = speedKmh > state.topSpeed ? speedKmh : state.topSpeed;
-
+    // Calculate distance (only when not paused and we have a previous position)
     double addedDistance = 0.0;
     if (state.lastPosition != null && !state.isPaused) {
       addedDistance = Geolocator.distanceBetween(
@@ -133,8 +143,14 @@ class RideEngine extends StateNotifier<RideState> {
         position.latitude,
         position.longitude,
       ) / 1000.0;
+      
+      // Filter out GPS noise: ignore jumps > 1km in a single tick
+      if (addedDistance > 1.0) {
+        addedDistance = 0.0;
+      }
     }
 
+    final newTopSpeed = speedKmh > state.topSpeed ? speedKmh : state.topSpeed;
     final newDistance = state.distance + addedDistance;
     final newPoints = List<Position>.from(state.routePoints)..add(position);
 
@@ -156,11 +172,11 @@ class RideEngine extends StateNotifier<RideState> {
   Future<void> stopRide() async {
     if (!state.isRecording) return;
 
+    debugPrint('RideEngine: 🛑 Stopping ride...');
     _durationTimer?.cancel();
     _positionSubscription?.cancel();
     _imuService.stopTracking();
 
-    // Only save if we have some data
     if (state.routePoints.isNotEmpty || state.durationSeconds > 0) {
       try {
         final duration = state.durationSeconds.toDouble();
@@ -189,13 +205,14 @@ class RideEngine extends StateNotifier<RideState> {
           ..timestamp = p.timestamp ?? DateTime.now()
         ).toList();
 
-        // Add points to ride's IsarLinks collection
         ride.points.addAll(points);
         await _dbService.saveRide(ride);
-        debugPrint('RideEngine: Ride saved successfully with ${points.length} points');
+        debugPrint('RideEngine: ✅ Ride saved! ${points.length} GPS points, ${state.distance.toStringAsFixed(2)} km');
       } catch (e) {
-        debugPrint('RideEngine: Error saving ride: $e');
+        debugPrint('RideEngine: ❌ Error saving ride: $e');
       }
+    } else {
+      debugPrint('RideEngine: ⚠️ No data to save (0 points, 0 duration)');
     }
 
     if (mounted) {

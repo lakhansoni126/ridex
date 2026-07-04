@@ -30,17 +30,23 @@ class _MapScreenState extends ConsumerState<MapScreen> {
 
   void _initLocation() async {
     try {
-      final permission = await Geolocator.checkPermission();
+      // Check permissions
+      LocationPermission permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
-        await Geolocator.requestPermission();
+        permission = await Geolocator.requestPermission();
+      }
+      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
+        debugPrint('MapScreen: Location permission denied');
+        return;
       }
 
-      // Get a quick initial fix
+      // Get one-shot position first
       try {
         final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.medium,
-          timeLimit: const Duration(seconds: 5),
+          desiredAccuracy: LocationAccuracy.high,
+          timeLimit: const Duration(seconds: 10),
         );
+        debugPrint('MapScreen: Initial fix: ${pos.latitude}, ${pos.longitude}');
         if (mounted) {
           setState(() {
             _currentLocation = LatLng(pos.latitude, pos.longitude);
@@ -49,15 +55,15 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             _mapController.move(_currentLocation!, 16.0);
           }
         }
-      } catch (_) {
-        // Initial fix timed out, we'll get it from the stream
+      } catch (e) {
+        debugPrint('MapScreen: Initial fix failed: $e');
       }
 
-      // Start continuous stream
+      // Start continuous updates
       _positionStream = Geolocator.getPositionStream(
         locationSettings: const LocationSettings(
           accuracy: LocationAccuracy.high,
-          distanceFilter: 5,
+          distanceFilter: 0, // Get ALL updates
         ),
       ).listen(
         (Position position) {
@@ -73,7 +79,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           }
         },
         onError: (e) {
-          debugPrint('MapScreen GPS error: $e');
+          debugPrint('MapScreen: GPS stream error: $e');
         },
       );
     } catch (e) {
@@ -92,7 +98,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   Widget build(BuildContext context) {
     final rideState = ref.watch(rideEngineProvider);
 
-    // Build polylines from ride points
+    // Build polylines from ride route
     final ridePoints = rideState.routePoints.map((p) => RidePoint()
       ..latitude = p.latitude
       ..longitude = p.longitude
@@ -100,7 +106,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     ).toList();
     final polylines = PolylineEngine.generateHeatmap(ridePoints);
 
-    // Determine blue dot position
+    // Blue dot: use ride engine position when recording, else map's own GPS
     LatLng? markerPos;
     if (rideState.isRecording && rideState.lastPosition != null) {
       markerPos = LatLng(rideState.lastPosition!.latitude, rideState.lastPosition!.longitude);
@@ -108,8 +114,8 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       markerPos = _currentLocation;
     }
 
-    // Determine initial center
-    final initialCenter = _currentLocation ?? const LatLng(20.5937, 78.9629); // Default to India
+    // Default center: India
+    final initialCenter = _currentLocation ?? const LatLng(20.5937, 78.9629);
 
     return Scaffold(
       appBar: AppBar(
@@ -138,8 +144,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
           initialCenter: initialCenter,
           initialZoom: _currentLocation != null ? 16.0 : 5.0,
           onMapReady: () {
-            _mapReady = true;
-            // Center on location once map is ready
+            setState(() { _mapReady = true; });
             if (_currentLocation != null) {
               _mapController.move(_currentLocation!, 16.0);
             }
