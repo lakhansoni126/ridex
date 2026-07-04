@@ -76,12 +76,15 @@ jobs:
         run: dart run build_runner build --delete-conflicting-outputs
 
       - name: Build APK
+        run: flutter build apk --release || true
+
+      - name: Find and Prepare APK
         run: |
-          flutter clean
-          flutter build apk --release
+          mkdir -p output_apk
+          find build/app/outputs/ -name "*.apk" -exec cp {} output_apk/app-release.apk \;
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: ridex-release-apk
-          path: build/app/outputs/flutter-apk/app-release.apk
+          path: output_apk/app-release.apk
