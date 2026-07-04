@@ -52,7 +52,7 @@ dev_dependencies:
   # Code Generation
   build_runner: ^2.4.7
   freezed: ^2.4.5
-  json_serializable: ^8.0.0
+  json_serializable: ^6.8.0
   riverpod_generator: ^2.3.9
   isar_generator: ^3.1.0
 
