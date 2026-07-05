@@ -12,28 +12,24 @@ class PolylineEngine {
   }
 
   static List<Polyline> generateHeatmap(List<RidePoint> points) {
-    final List<Polyline> polylines = [];
-    if (points.length < 2) return polylines;
+    if (points.length < 2) return [];
 
-    for (int i = 0; i < points.length - 1; i++) {
-      final p1 = points[i];
-      final p2 = points[i + 1];
+    final List<LatLng> latLngs = [];
+    final List<Color> colors = [];
 
-      final color = _getColorForSpeed(p1.speed);
-      
-      polylines.add(
-        Polyline(
-          points: [
-            LatLng(p1.latitude, p1.longitude),
-            LatLng(p2.latitude, p2.longitude),
-          ],
-          color: color,
-          strokeWidth: 5,
-          strokeCap: StrokeCap.round,
-          strokeJoin: StrokeJoin.round,
-        ),
-      );
+    for (var p in points) {
+      latLngs.add(LatLng(p.latitude, p.longitude));
+      colors.add(_getColorForSpeed(p.speed));
     }
-    return polylines;
+
+    return [
+      Polyline(
+        points: latLngs,
+        strokeWidth: 5,
+        strokeCap: StrokeCap.round,
+        strokeJoin: StrokeJoin.round,
+        gradientColors: colors,
+      )
+    ];
   }
 }

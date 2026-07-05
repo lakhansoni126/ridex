@@ -21,6 +21,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
   StreamSubscription<Position>? _positionStream;
   LatLng? _currentLocation;
   bool _mapReady = false;
+  bool _autoFollow = true;
 
   @override
   void initState() {
@@ -69,12 +70,11 @@ class _MapScreenState extends ConsumerState<MapScreen> {
         (Position position) {
           if (mounted) {
             final newLoc = LatLng(position.latitude, position.longitude);
-            final isFirstFix = _currentLocation == null;
             setState(() {
               _currentLocation = newLoc;
             });
-            if (isFirstFix && _mapReady) {
-              _mapController.move(newLoc, 16.0);
+            if (_autoFollow && _mapReady) {
+              _mapController.move(newLoc, _mapController.camera.zoom);
             }
           }
         },
@@ -131,18 +131,24 @@ class _MapScreenState extends ConsumerState<MapScreen> {
       floatingActionButton: FloatingActionButton(
         backgroundColor: Colors.blueAccent,
         onPressed: () {
+          setState(() { _autoFollow = true; });
           final target = markerPos ?? _currentLocation;
           if (target != null && _mapReady) {
             _mapController.move(target, 16.0);
           }
         },
-        child: const Icon(Icons.my_location, color: Colors.white),
+        child: Icon(Icons.my_location, color: _autoFollow ? Colors.white : Colors.white54),
       ),
       body: FlutterMap(
         mapController: _mapController,
         options: MapOptions(
           initialCenter: initialCenter,
           initialZoom: _currentLocation != null ? 16.0 : 5.0,
+          onPositionChanged: (position, hasGesture) {
+            if (hasGesture && _autoFollow) {
+              setState(() { _autoFollow = false; });
+            }
+          },
           onMapReady: () {
             setState(() { _mapReady = true; });
             if (_currentLocation != null) {

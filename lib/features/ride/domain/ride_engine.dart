@@ -205,8 +205,9 @@ class RideEngine extends StateNotifier<RideState> {
           ..timestamp = p.timestamp ?? DateTime.now()
         ).toList();
 
-        ride.points.addAll(points);
-        await _dbService.saveRide(ride);
+        // Note: we no longer do ride.points.addAll(points) here because IsarLinks 
+        // require the parent to be managed first. DatabaseService handles it.
+        await _dbService.saveRide(ride, points);
         debugPrint('RideEngine: ✅ Ride saved! ${points.length} GPS points, ${state.distance.toStringAsFixed(2)} km');
       } catch (e) {
         debugPrint('RideEngine: ❌ Error saving ride: $e');

@@ -15,15 +15,19 @@ class DatabaseService {
     );
   }
 
-  Future<void> saveRide(Ride ride) async {
+  Future<void> saveRide(Ride ride, List<RidePoint> points) async {
     await _isar.writeTxn(() async {
       // Save ride first to get its ID
       await _isar.rides.put(ride);
 
-      // Save each point individually and link it to the ride
-      for (var point in ride.points) {
+      // Assign ride link to each point and save points
+      for (var point in points) {
         point.ride.value = ride;
-        await _isar.ridePoints.put(point);
+      }
+      await _isar.ridePoints.putAll(points);
+      
+      // Save the links
+      for (var point in points) {
         await point.ride.save();
       }
     });
