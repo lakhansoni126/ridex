@@ -34,7 +34,20 @@ class DatabaseService {
   }
 
   Future<List<Ride>> getAllRides() async {
-    return await _isar.rides.where().findAll();
+    final rides = await _isar.rides.where().findAll();
+    // Eagerly load the IsarLinks for points on each ride
+    for (final ride in rides) {
+      await ride.points.load();
+    }
+    return rides;
+  }
+
+  Future<Ride?> getRideById(int id) async {
+    final ride = await _isar.rides.get(id);
+    if (ride != null) {
+      await ride.points.load();
+    }
+    return ride;
   }
 
   Future<int> getRideCount() async {

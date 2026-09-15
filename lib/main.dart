@@ -7,6 +7,7 @@ import 'core/theme/app_theme.dart';
 import 'features/ride/presentation/home_dashboard_screen.dart';
 import 'features/ride/presentation/ride_dashboard_screen.dart';
 import 'features/history/presentation/history_screen.dart';
+import 'features/history/presentation/ride_detail_screen.dart';
 import 'features/map/presentation/map_screen.dart';
 import 'features/ride/presentation/ride_replay_screen.dart';
 import 'features/garage/presentation/garage_screen.dart';
@@ -42,6 +43,13 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       GoRoute(
         path: '/history',
         builder: (context, state) => const HistoryScreen(),
+      ),
+      GoRoute(
+        path: '/ride-detail/:id',
+        builder: (context, state) {
+          final id = int.tryParse(state.pathParameters['id'] ?? '') ?? 0;
+          return RideDetailScreen(rideId: id);
+        },
       ),
       GoRoute(
         path: '/map',

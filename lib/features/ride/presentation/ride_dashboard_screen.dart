@@ -205,7 +205,7 @@ class _RideDashboardScreenState extends ConsumerState<RideDashboardScreen> {
                 onTap: () async {
                   await ref.read(rideEngineProvider.notifier).stopRide();
                   if (context.mounted) {
-                    context.go('/');
+                    context.go('/history');
                   }
                 },
                 child: GlassContainer(
