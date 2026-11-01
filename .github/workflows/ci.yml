@@ -1,0 +1,137 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run unit tests
+        run: python -m pytest -q
+
+  mobile:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Flutter version
+        run: flutter --version
+
+      - name: Install Dart/Flutter packages
+        run: flutter pub get
+
+      - name: Generate Android platform
+        run: |
+          flutter create --platforms=android --org=com.ridex --project-name=ridex .
+          # Keep our sources; create only fills missing platform folders
+
+      - name: Patch RideX Android config
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/patch_mobile_native.py
+
+      - name: Harden Android Gradle (Isar / SDK)
+        run: |
+          # Root build.gradle — namespace + compileSdk for older plugins (Isar)
+          if [ -f android/build.gradle ]; then
+            cat >> android/build.gradle <<'EOF'
+
+          subprojects {
+              afterEvaluate { project ->
+                  if (project.hasProperty("android")) {
+                      project.android {
+                          if (namespace == null && project.group != null) {
+                              namespace project.group
+                          }
+                          compileSdkVersion 35
+                      }
+                  }
+              }
+          }
+          EOF
+          fi
+
+          # app/build.gradle — ensure minSdk high enough for geolocator / FGS
+          APP_GRADLE="android/app/build.gradle"
+          if [ -f "$APP_GRADLE" ]; then
+            if grep -q "minSdkVersion" "$APP_GRADLE"; then
+              sed -i 's/minSdkVersion .*/minSdkVersion 24/' "$APP_GRADLE"
+            elif grep -q "minSdk " "$APP_GRADLE"; then
+              sed -i 's/minSdk .*/minSdk 24/' "$APP_GRADLE"
+            fi
+            if grep -q "compileSdk" "$APP_GRADLE"; then
+              sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 35/' "$APP_GRADLE" || true
+              sed -i 's/compileSdk [0-9]\+/compileSdk 35/' "$APP_GRADLE" || true
+            fi
+          fi
+
+      - name: Codegen (Isar / Freezed)
+        run: dart run build_runner build --delete-conflicting-outputs
+
+      - name: Launcher icons & splash (best-effort)
+        continue-on-error: true
+        run: |
+          dart run flutter_launcher_icons
+          dart run flutter_native_splash:create
+
+      - name: Build release APK
+        run: flutter build apk --release --no-tree-shake-icons
+
+      - name: Stage APK
+        working-directory: ${{ github.workspace }}
+        run: |
+          mkdir -p /tmp/output_apk
+          APK="$(find mobile/build/app/outputs -name '*.apk' -type f | head -n 1)"
+          if [ -z "$APK" ]; then
+            echo "No APK found under mobile/build/app/outputs"
+            find mobile/build -name '*.apk' -type f || true
+            exit 1
+          fi
+          cp "$APK" /tmp/output_apk/app-release.apk
+          ls -lh /tmp/output_apk/app-release.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ridex-release-apk
+          path: /tmp/output_apk/app-release.apk
+          if-no-files-found: error
+          retention-days: 14

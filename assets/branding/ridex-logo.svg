@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="RideX">
+  <title>RideX</title>
+  <rect width="512" height="512" rx="96" fill="#0F0F11"/>
+  <!-- Abstract R / road mark -->
+  <path fill="#E53935" d="M156 120h140c62 0 108 40 108 96 0 42-26 76-68 88l76 88H334l-72-84h-42v84h-64V120zm64 56v76h72c28 0 46-16 46-38s-18-38-46-38H220z"/>
+  <!-- Subtle car silhouette underline -->
+  <path fill="#E53935" opacity="0.85" d="M128 390c18-28 52-42 128-42s110 14 128 42c-22 8-70 14-128 14s-106-6-128-14z"/>
+</svg>

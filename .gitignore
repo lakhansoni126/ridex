@@ -1,8 +1,55 @@
+# OS / IDE
 .DS_Store
+*.iml
+.idea/
+.vscode/
+*.log
+
+# Flutter / Dart
 .dart_tool/
 .packages
 .pub/
+.pub-cache/
 build/
-*.iml
-.idea/
-*.log
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/.dart_tool/
+mobile/build/
+mobile/.packages
+mobile/**/*.g.dart
+mobile/**/*.freezed.dart
+# Keep intentional: regenerate via build_runner in CI / local
+
+# Android / iOS (generated when platforms are created)
+mobile/android/.gradle/
+mobile/ios/Pods/
+mobile/ios/.symlinks/
+
+# Python / backend
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+backend/.venv/
+backend/.pytest_cache/
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Env & secrets
+.env
+.env.local
+*.pem
+
+# Local media storage (never commit uploads)
+storage/posts/*
+storage/avatars/*
+storage/thumbnails/*
+!storage/.gitkeep
+!storage/posts/.gitkeep
+!storage/avatars/.gitkeep
+!storage/thumbnails/.gitkeep
+
+# Generated branding intermediates (optional)
+*.tmp

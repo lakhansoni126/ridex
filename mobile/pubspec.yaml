@@ -1,0 +1,90 @@
+name: ridex
+description: RideX — a premium automobile community and group-ride app.
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State Management
+  flutter_riverpod: ^2.4.9
+  riverpod_annotation: ^2.3.3
+
+  # Routing
+  go_router: ^12.1.1
+
+  # Local Database
+  isar: ^3.1.0
+  isar_flutter_libs: ^3.1.0
+  path_provider: ^2.1.1
+
+  # Location & GPS
+  geolocator: ^10.1.0
+  permission_handler: ^11.1.0
+
+  # Map Integration
+  flutter_map: ^6.1.0
+  latlong2: ^0.9.0
+
+  # Utilities
+  freezed_annotation: ^2.4.1
+  json_annotation: ^4.8.1
+  intl: ^0.18.1
+  google_fonts: ^6.1.0
+  share_plus: ^7.2.1
+  http: ^1.2.0
+  url_launcher: ^6.2.4
+  shared_preferences: ^2.2.2
+  image_picker: ^1.0.7
+  web_socket_channel: ^2.4.0
+  connectivity_plus: ^5.0.2
+  uuid: ^4.3.3
+
+  # UI & Sensor Elements
+  glassmorphism: ^3.0.0
+  fl_chart: ^0.66.0
+  sensors_plus: ^5.0.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+
+  # Code Generation
+  build_runner: ^2.4.7
+  freezed: ^2.4.5
+  json_serializable: ^6.8.0
+  riverpod_generator: ^2.3.9
+  isar_generator: ^3.1.0
+
+  flutter_lints: ^3.0.1
+  flutter_launcher_icons: ^0.13.1
+  flutter_native_splash: ^2.3.10
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/branding/exports/ridex-icon-1024.png
+    - assets/branding/exports/ridex-wordmark.png
+    - assets/branding/exports/splash/splash-portrait.png
+
+flutter_launcher_icons:
+  android: true
+  ios: true
+  image_path: assets/branding/exports/ridex-icon-1024.png
+  adaptive_icon_background: "#0F0F11"
+  adaptive_icon_foreground: assets/branding/exports/ridex-icon-1024.png
+  remove_alpha_ios: true
+
+flutter_native_splash:
+  color: "#0F0F11"
+  image: assets/branding/exports/ridex-icon-1024.png
+  android: true
+  ios: true
+  android_12:
+    color: "#0F0F11"
+    image: assets/branding/exports/ridex-icon-1024.png

@@ -1,0 +1,42 @@
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-ridex}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-ridex_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-ridex}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - ridex_pgdata:/var/lib/postgresql/data
+      - ./infra/init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-ridex} -d ${POSTGRES_DB:-ridex}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    environment:
+      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ridex}:${POSTGRES_PASSWORD:-ridex_dev_password}@db:5432/${POSTGRES_DB:-ridex}
+      STORAGE_ROOT: /storage
+      JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
+      JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
+      JWT_REFRESH_TOKEN_EXPIRE_DAYS: ${JWT_REFRESH_TOKEN_EXPIRE_DAYS:-30}
+      LOCATION_RETENTION_DAYS: ${LOCATION_RETENTION_DAYS:-30}
+      MEDIA_MAX_UPLOAD_MB: ${MEDIA_MAX_UPLOAD_MB:-10}
+      CORS_ORIGINS: ${CORS_ORIGINS:-*}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - ./storage:/storage
+      - ./scripts:/scripts:ro
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  ridex_pgdata:
