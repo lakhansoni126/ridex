@@ -21,7 +21,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
-      DATABASE_URL: postgresql+psycopg://${POSTGRES_USER:-ridex}:${POSTGRES_PASSWORD:-ridex_dev_password}@db:5432/${POSTGRES_DB:-ridex}
+      DATABASE_URL: postgres://${POSTGRES_USER:-ridex}:${POSTGRES_PASSWORD:-ridex_dev_password}@db:5432/${POSTGRES_DB:-ridex}?sslmode=disable
       STORAGE_ROOT: /storage
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}
       JWT_ACCESS_TOKEN_EXPIRE_MINUTES: ${JWT_ACCESS_TOKEN_EXPIRE_MINUTES:-30}
@@ -29,11 +29,11 @@ services:
       LOCATION_RETENTION_DAYS: ${LOCATION_RETENTION_DAYS:-30}
       MEDIA_MAX_UPLOAD_MB: ${MEDIA_MAX_UPLOAD_MB:-10}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
+      API_PORT: "8000"
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
       - ./storage:/storage
-      - ./scripts:/scripts:ro
     depends_on:
       db:
         condition: service_healthy
