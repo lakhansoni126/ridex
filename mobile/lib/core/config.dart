@@ -1,23 +1,22 @@
 /// RideX API configuration.
 ///
-/// Android emulator → host machine: `10.0.2.2`
-/// iOS simulator → host machine: `127.0.0.1` / `localhost`
-/// Physical device → your LAN IP (e.g. `192.168.1.10`)
+/// Default points at this PC's LAN IP so a phone on the same Wi‑Fi can reach the API.
+/// Override: `flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000` (emulator)
 class ApiConfig {
   ApiConfig._();
 
-  /// Override at build time:
-  /// `flutter run --dart-define=API_BASE_URL=http://192.168.1.10:8000`
+  /// Update if your Wi‑Fi IPv4 changes (`ipconfig`).
+  static const String lanHost = '192.168.29.37';
+
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://10.0.2.2:8000',
+    defaultValue: 'http://192.168.29.37:8000',
   );
 
   static const String apiPrefix = '/api/v1';
 
   static String get restBaseUrl => '$apiBaseUrl$apiPrefix';
 
-  /// WebSocket base derived from [apiBaseUrl] (http→ws, https→wss).
   static String get wsBaseUrl {
     final uri = Uri.parse(apiBaseUrl);
     final scheme = uri.scheme == 'https' ? 'wss' : 'ws';

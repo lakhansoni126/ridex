@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Patch Android/iOS native projects for RideX background location + branding."""
+"""Patch Android/iOS native projects for RideX location, branding, cleartext LAN."""
 
 from __future__ import annotations
 
@@ -19,6 +19,14 @@ def patch_android() -> None:
 
     text = manifest.read_text(encoding="utf-8")
     text = re.sub(r'android:label="[^"]+"', 'android:label="RideX"', text, count=1)
+
+    # Allow http://LAN for local API testing
+    if "android:usesCleartextTraffic" not in text:
+        text = text.replace(
+            "<application",
+            '<application android:usesCleartextTraffic="true"',
+            1,
+        )
 
     perms = [
         "android.permission.ACCESS_FINE_LOCATION",
@@ -62,18 +70,13 @@ def patch_ios() -> None:
     for key, value in replacements.items():
         if key in text:
             continue
-        entry = (
-            f"\t<key>{key}</key>\n"
-            f"\t<string>{value}</string>\n"
-        )
+        entry = f"\t<key>{key}</key>\n\t<string>{value}</string>\n"
         text = text.replace("</dict>\n</plist>", f"{entry}</dict>\n</plist>")
 
     if "UIBackgroundModes" not in text:
         bg = (
             "\t<key>UIBackgroundModes</key>\n"
-            "\t<array>\n"
-            "\t\t<string>location</string>\n"
-            "\t</array>\n"
+            "\t<array>\n\t\t<string>location</string>\n\t</array>\n"
         )
         text = text.replace("</dict>\n</plist>", f"{bg}</dict>\n</plist>")
     elif "<string>location</string>" not in text:
@@ -81,6 +84,19 @@ def patch_ios() -> None:
             "<key>UIBackgroundModes</key>\n\t<array>",
             "<key>UIBackgroundModes</key>\n\t<array>\n\t\t<string>location</string>",
         )
+
+    # Allow local HTTP to LAN API during development
+    if "NSAppTransportSecurity" not in text:
+        ats = (
+            "\t<key>NSAppTransportSecurity</key>\n"
+            "\t<dict>\n"
+            "\t\t<key>NSAllowsLocalNetworking</key>\n"
+            "\t\t<true/>\n"
+            "\t\t<key>NSAllowsArbitraryLoads</key>\n"
+            "\t\t<true/>\n"
+            "\t</dict>\n"
+        )
+        text = text.replace("</dict>\n</plist>", f"{ats}</dict>\n</plist>")
 
     plist.write_text(text, encoding="utf-8")
     print(f"patched {plist.relative_to(ROOT)}")

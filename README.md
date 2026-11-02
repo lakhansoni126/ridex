@@ -8,24 +8,26 @@ Premium **automobile community** and **group-ride** app.
 | Backend | **Go + Gin** (`backend/`) — shared service layer, pgx, PostGIS, WebSockets |
 | Infra | Docker Compose — PostGIS 16 + API; local `/storage` media |
 
-## Run backend
+## Run backend (LAN testing)
+
+This machine’s Wi‑Fi IP is baked into the mobile app as **`192.168.29.37:8000`**.
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
-# Health: http://localhost:8000/health
+# Health (PC):   http://localhost:8000/health
+# Health (phone): http://192.168.29.37:8000/health
 
 docker compose exec -T api /app/seed
 # Demo: alex@ridex.local / password123
 ```
 
-API paths stay under `/api/v1` (same mobile contract). WebSockets: `/ws/rides/{id}`, `/ws/location-shares`.
+Phone and PC must be on the same Wi‑Fi. Windows Firewall must allow inbound TCP **8000**.
 
-Unit tests (no DB):
+API: `/api/v1` · WS: `/ws/rides/{id}`, `/ws/location-shares`.
 
 ```bash
-cd backend
-go test ./...
+cd backend && go test ./...
 ```
 
 ## Run mobile
@@ -37,7 +39,11 @@ dart run build_runner build --delete-conflicting-outputs
 flutter create --platforms android,ios .
 python ../scripts/patch_mobile_native.py
 flutter run
+# Emulator instead of phone:
+# flutter run --dart-define=API_BASE_URL=http://10.0.2.2:8000
 ```
+
+GitHub Actions builds the release APK with the same LAN URL so you can install the artifact and hit your PC API.
 
 ## Architecture (backend)
 

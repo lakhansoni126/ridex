@@ -113,8 +113,10 @@ jobs:
           dart run flutter_launcher_icons
           dart run flutter_native_splash:create
 
-      - name: Build release APK
-        run: flutter build apk --release --no-tree-shake-icons
+      - name: Build release APK (LAN API for device testing)
+        run: >
+          flutter build apk --release --no-tree-shake-icons
+          --dart-define=API_BASE_URL=http://192.168.29.37:8000
 
       - name: Stage APK
         working-directory: ${{ github.workspace }}
