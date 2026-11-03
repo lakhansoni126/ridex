@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 import '../application/auth_notifier.dart';
 
 class LoginScreen extends ConsumerStatefulWidget {
@@ -38,91 +38,75 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
     final auth = ref.watch(authNotifierProvider);
     final theme = Theme.of(context);
 
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Form(
-            key: _formKey,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const SizedBox(height: 32),
-                Text(
-                  'RideX',
-                  style: theme.textTheme.displayMedium,
+    return GlassScaffold(
+      padding: const EdgeInsets.all(24),
+      body: SingleChildScrollView(
+        child: Form(
+          key: _formKey,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const SizedBox(height: 40),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppTheme.accentSoft,
+                  borderRadius: BorderRadius.circular(999),
+                  border: Border.all(color: AppTheme.accent.withValues(alpha: 0.4)),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'Sign in to join group drives and the car community.',
-                  style: theme.textTheme.bodyMedium,
-                ),
-                const SizedBox(height: 40),
-                GlassContainer(
-                  child: Column(
-                    children: [
-                      TextFormField(
-                        controller: _email,
-                        keyboardType: TextInputType.emailAddress,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
-                          labelText: 'Email',
-                          labelStyle: TextStyle(color: AppTheme.textSecondary),
-                          border: InputBorder.none,
-                        ),
-                        validator: (v) =>
-                            (v == null || !v.contains('@')) ? 'Enter email' : null,
-                      ),
-                      const Divider(color: Colors.white12),
-                      TextFormField(
-                        controller: _password,
-                        obscureText: true,
-                        style: const TextStyle(color: Colors.white),
-                        decoration: const InputDecoration(
-                          labelText: 'Password',
-                          labelStyle: TextStyle(color: AppTheme.textSecondary),
-                          border: InputBorder.none,
-                        ),
-                        validator: (v) =>
-                            (v == null || v.length < 8) ? 'Min 8 characters' : null,
-                      ),
-                    ],
+                child: Text(
+                  'RIDE COMMUNITY',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: AppTheme.accent,
+                    letterSpacing: 1.4,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-                if (auth.error != null) ...[
-                  const SizedBox(height: 16),
-                  Text(
-                    auth.error!,
-                    style: const TextStyle(color: AppTheme.accent),
+              ),
+              const SizedBox(height: 20),
+              Text('RideX', style: theme.textTheme.displayMedium),
+              const SizedBox(height: 10),
+              Text(
+                'Sign in to join group drives and the car community.',
+                style: theme.textTheme.bodyMedium,
+              ),
+              const SizedBox(height: 40),
+              GlassFormPanel(
+                children: [
+                  GlassFormField(
+                    controller: _email,
+                    label: 'Email',
+                    keyboardType: TextInputType.emailAddress,
+                    validator: (v) =>
+                        (v == null || !v.contains('@')) ? 'Enter email' : null,
+                  ),
+                  GlassFormField(
+                    controller: _password,
+                    label: 'Password',
+                    obscureText: true,
+                    validator: (v) =>
+                        (v == null || v.length < 8) ? 'Min 8 characters' : null,
                   ),
                 ],
-                const SizedBox(height: 32),
-                SizedBox(
-                  width: double.infinity,
-                  height: 56,
-                  child: ElevatedButton(
-                    onPressed: auth.busy ? null : _submit,
-                    child: auth.busy
-                        ? const SizedBox(
-                            width: 22,
-                            height: 22,
-                            child: CircularProgressIndicator(strokeWidth: 2),
-                          )
-                        : const Text('SIGN IN'),
-                  ),
-                ),
+              ),
+              if (auth.error != null) ...[
                 const SizedBox(height: 16),
-                Center(
-                  child: TextButton(
-                    onPressed: () => context.push('/register'),
-                    child: const Text(
-                      'Create an account',
-                      style: TextStyle(color: Colors.white70),
-                    ),
-                  ),
-                ),
+                Text(auth.error!, style: const TextStyle(color: AppTheme.accent)),
               ],
-            ),
+              const SizedBox(height: 32),
+              GlassButton(
+                label: 'SIGN IN',
+                busy: auth.busy,
+                onPressed: auth.busy ? null : _submit,
+              ),
+              const SizedBox(height: 16),
+              Center(
+                child: TextButton(
+                  onPressed: () => context.push('/register'),
+                  child: const Text('Create an account'),
+                ),
+              ),
+            ],
           ),
         ),
       ),

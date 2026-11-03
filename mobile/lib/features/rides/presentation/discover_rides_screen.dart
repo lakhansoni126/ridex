@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/api/rides_repository.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 
 final discoverRidesProvider = FutureProvider.autoDispose<List<RideDto>>((ref) {
   return ref.watch(ridesRepositoryProvider).listRides();
@@ -19,11 +19,9 @@ class DiscoverRidesScreen extends ConsumerWidget {
     final ridesAsync = ref.watch(discoverRidesProvider);
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text('Discover drives'),
+    return GlassScaffold(
+      appBar: GlassAppBar(
+        title: 'Discover drives',
         actions: [
           IconButton(
             icon: const Icon(Icons.group_add_outlined),
@@ -46,9 +44,11 @@ class DiscoverRidesScreen extends ConsumerWidget {
             children: [
               const SizedBox(height: 120),
               Center(
-                child: Text('Could not load drives\n$e',
-                    textAlign: TextAlign.center,
-                    style: theme.textTheme.bodyMedium),
+                child: Text(
+                  'Could not load drives\n$e',
+                  textAlign: TextAlign.center,
+                  style: theme.textTheme.bodyMedium,
+                ),
               ),
             ],
           ),
@@ -58,15 +58,18 @@ class DiscoverRidesScreen extends ConsumerWidget {
                 padding: const EdgeInsets.all(24),
                 children: [
                   const SizedBox(height: 80),
-                  Text(
-                    'No public drives yet. Create one or join with a code.',
-                    style: theme.textTheme.bodyMedium,
-                    textAlign: TextAlign.center,
+                  GlassContainer(
+                    variant: GlassVariant.card,
+                    child: Text(
+                      'No public drives yet. Create one or join with a code.',
+                      style: theme.textTheme.bodyMedium,
+                      textAlign: TextAlign.center,
+                    ),
                   ),
                   const SizedBox(height: 24),
-                  ElevatedButton(
+                  GlassButton(
+                    label: 'CREATE DRIVE',
                     onPressed: () => context.push('/rides/create'),
-                    child: const Text('CREATE DRIVE'),
                   ),
                 ],
               );
@@ -77,40 +80,39 @@ class DiscoverRidesScreen extends ConsumerWidget {
               separatorBuilder: (_, __) => const SizedBox(height: 16),
               itemBuilder: (context, i) {
                 final ride = rides[i];
-                return InkWell(
+                return GlassContainer(
+                  variant: GlassVariant.card,
+                  padding: const EdgeInsets.all(20),
+                  borderRadius: 22,
                   onTap: () => context.push('/rides/live/${ride.id}'),
-                  borderRadius: BorderRadius.circular(24),
-                  child: GlassContainer(
-                    padding: const EdgeInsets.all(20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Expanded(
-                              child: Text(
-                                ride.title,
-                                style: theme.textTheme.titleLarge
-                                    ?.copyWith(fontSize: 20),
-                              ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              ride.title,
+                              style: theme.textTheme.titleLarge
+                                  ?.copyWith(fontSize: 20),
                             ),
-                            _StatusChip(status: ride.status),
-                          ],
-                        ),
-                        if (ride.description != null &&
-                            ride.description!.isNotEmpty) ...[
-                          const SizedBox(height: 8),
-                          Text(ride.description!,
-                              style: theme.textTheme.bodyMedium),
+                          ),
+                          _StatusChip(status: ride.status),
                         ],
-                        const SizedBox(height: 12),
-                        Text(
-                          '${ride.participants.length} drivers · code ${ride.joinCode}',
-                          style: theme.textTheme.bodyMedium
-                              ?.copyWith(fontSize: 13),
-                        ),
+                      ),
+                      if (ride.description != null &&
+                          ride.description!.isNotEmpty) ...[
+                        const SizedBox(height: 8),
+                        Text(ride.description!,
+                            style: theme.textTheme.bodyMedium),
                       ],
-                    ),
+                      const SizedBox(height: 12),
+                      Text(
+                        '${ride.participants.length} drivers · code ${ride.joinCode}',
+                        style:
+                            theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+                      ),
+                    ],
                   ),
                 );
               },
@@ -137,13 +139,14 @@ class _StatusChip extends StatelessWidget {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: color.withOpacity(0.2),
+        color: color.withValues(alpha: 0.2),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: color.withOpacity(0.5)),
+        border: Border.all(color: color.withValues(alpha: 0.5)),
       ),
       child: Text(
         status.toUpperCase(),
-        style: TextStyle(color: color, fontSize: 11, fontWeight: FontWeight.w600),
+        style: TextStyle(
+            color: color, fontSize: 11, fontWeight: FontWeight.w600),
       ),
     );
   }

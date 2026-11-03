@@ -6,7 +6,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/api/api_client.dart';
 import '../../../data/api/shares_repository.dart';
 import '../../../data/ws/ws_client.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 import '../../friends/presentation/friends_screen.dart';
 
 final locationSharesProvider =
@@ -88,22 +88,20 @@ class _LocationSharingScreenState extends ConsumerState<LocationSharingScreen> {
     final friendsAsync = ref.watch(friendsListProvider);
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text('Location sharing'),
-      ),
+    return GlassScaffold(
+      appBar: const GlassAppBar(title: 'Location sharing'),
       body: ListView(
         padding: const EdgeInsets.all(24),
         children: [
           Text('Share with friends', style: theme.textTheme.titleLarge),
           const SizedBox(height: 12),
           GlassContainer(
+            variant: GlassVariant.intense,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Duration', style: TextStyle(color: Colors.white70)),
+                const Text('Duration',
+                    style: TextStyle(color: AppTheme.textSecondary)),
                 const SizedBox(height: 8),
                 Wrap(
                   spacing: 8,
@@ -122,7 +120,8 @@ class _LocationSharingScreenState extends ConsumerState<LocationSharingScreen> {
                   ],
                 ),
                 const SizedBox(height: 16),
-                const Text('Friends', style: TextStyle(color: Colors.white70)),
+                const Text('Friends',
+                    style: TextStyle(color: AppTheme.textSecondary)),
                 const SizedBox(height: 8),
                 friendsAsync.when(
                   loading: () => const LinearProgressIndicator(),
@@ -141,7 +140,8 @@ class _LocationSharingScreenState extends ConsumerState<LocationSharingScreen> {
                           value: selected,
                           activeColor: AppTheme.accent,
                           title: Text(f.displayName,
-                              style: const TextStyle(color: Colors.white)),
+                              style: const TextStyle(
+                                  color: AppTheme.textPrimary)),
                           subtitle: Text('@${f.username}',
                               style: theme.textTheme.bodyMedium),
                           onChanged: (v) {
@@ -166,19 +166,10 @@ class _LocationSharingScreenState extends ConsumerState<LocationSharingScreen> {
             Text(_error!, style: const TextStyle(color: AppTheme.accent)),
           ],
           const SizedBox(height: 16),
-          SizedBox(
-            width: double.infinity,
-            height: 56,
-            child: ElevatedButton(
-              onPressed: _busy ? null : _startShare,
-              child: _busy
-                  ? const SizedBox(
-                      width: 22,
-                      height: 22,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('START SHARING'),
-            ),
+          GlassButton(
+            label: 'START SHARING',
+            busy: _busy,
+            onPressed: _busy ? null : _startShare,
           ),
           const SizedBox(height: 32),
           Text('Active & recent', style: theme.textTheme.titleLarge),
@@ -243,6 +234,7 @@ class _LocationSharingScreenState extends ConsumerState<LocationSharingScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: GlassContainer(
+        variant: GlassVariant.card,
         padding: const EdgeInsets.all(16),
         borderRadius: 16,
         child: Row(
@@ -251,7 +243,8 @@ class _LocationSharingScreenState extends ConsumerState<LocationSharingScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(color: Colors.white)),
+                  Text(title,
+                      style: const TextStyle(color: AppTheme.textPrimary)),
                   Text(subtitle,
                       style: const TextStyle(
                           color: AppTheme.textSecondary, fontSize: 13)),

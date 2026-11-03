@@ -4,7 +4,8 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:intl/intl.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/glass.dart';
 import '../../../main.dart';
 import '../../../database/models.dart';
 import '../../map/domain/polyline_engine.dart';
@@ -61,24 +62,17 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
     final theme = Theme.of(context);
 
     if (_loading) {
-      return const Scaffold(
+      return const GlassScaffold(
         body: Center(child: CircularProgressIndicator()),
       );
     }
 
     if (_error != null || _ride == null) {
-      return Scaffold(
-        appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          leading: IconButton(
-            icon: const Icon(Icons.arrow_back_ios),
-            onPressed: () => context.pop(),
-          ),
-        ),
+      return GlassScaffold(
+        appBar: const GlassAppBar(title: 'Ride'),
         body: Center(
           child: Text(_error ?? 'Ride not found',
-              style: const TextStyle(color: Colors.white70)),
+              style: const TextStyle(color: AppTheme.textSecondary)),
         ),
       );
     }
@@ -133,12 +127,12 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
         height: 36,
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.greenAccent.withOpacity(0.9),
+            color: Colors.greenAccent.withValues(alpha: 0.9),
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: Colors.greenAccent.withOpacity(0.4),
+                color: Colors.greenAccent.withValues(alpha: 0.4),
                 blurRadius: 8,
                 spreadRadius: 2,
               ),
@@ -155,12 +149,12 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
         height: 36,
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.redAccent.withOpacity(0.9),
+            color: AppTheme.accent.withValues(alpha: 0.9),
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: Colors.redAccent.withOpacity(0.4),
+                color: AppTheme.accent.withValues(alpha: 0.4),
                 blurRadius: 8,
                 spreadRadius: 2,
               ),
@@ -174,6 +168,7 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
     }
 
     return Scaffold(
+      backgroundColor: AppTheme.background,
       body: Stack(
         children: [
           // ── FULL SCREEN MAP ──
@@ -212,23 +207,29 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
               child: Row(
                 children: [
                   GlassContainer(
-                    padding: const EdgeInsets.all(8),
+                    variant: GlassVariant.mapOverlay,
+                    padding: const EdgeInsets.all(4),
                     borderRadius: 12,
                     child: IconButton(
-                      icon: const Icon(Icons.arrow_back_ios, color: Colors.white, size: 20),
+                      icon: const Icon(Icons.arrow_back_ios,
+                          color: AppTheme.textPrimary, size: 20),
                       onPressed: () => context.pop(),
                     ),
                   ),
                   const SizedBox(width: 12),
                   GlassContainer(
-                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                    variant: GlassVariant.mapOverlay,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 16, vertical: 12),
                     borderRadius: 12,
                     child: Text(
-                      DateFormat('MMM dd, yyyy • hh:mm a').format(ride.startTime),
+                      DateFormat('MMM dd, yyyy • hh:mm a')
+                          .format(ride.startTime),
                       style: const TextStyle(
                         fontWeight: FontWeight.bold,
                         letterSpacing: 1,
                         fontSize: 13,
+                        color: AppTheme.textPrimary,
                       ),
                     ),
                   ),
@@ -246,7 +247,9 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
               children: [
                 // Speed Legend
                 GlassContainer(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+                  variant: GlassVariant.mapOverlay,
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
                   borderRadius: 12,
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.spaceEvenly,
@@ -254,14 +257,17 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
                       _legendDot(Colors.greenAccent, '< 40'),
                       _legendDot(Colors.yellowAccent, '40-80'),
                       _legendDot(Colors.orangeAccent, '80-120'),
-                      _legendDot(Colors.redAccent, '> 120'),
-                      const Text('km/h', style: TextStyle(color: Colors.white38, fontSize: 11)),
+                      _legendDot(AppTheme.accent, '> 120'),
+                      const Text('km/h',
+                          style: TextStyle(
+                              color: AppTheme.textSecondary, fontSize: 11)),
                     ],
                   ),
                 ),
                 const SizedBox(height: 10),
                 // Stats Grid
                 GlassContainer(
+                  variant: GlassVariant.mapOverlay,
                   padding: const EdgeInsets.all(20),
                   borderRadius: 16,
                   child: Column(
@@ -293,7 +299,8 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
                         const SizedBox(height: 12),
                         Text(
                           '${ride.temperatureCelsius?.toStringAsFixed(0) ?? '--'}°C • ${ride.weatherCondition}',
-                          style: const TextStyle(color: Colors.white54, fontSize: 13),
+                          style: const TextStyle(
+                              color: AppTheme.textSecondary, fontSize: 13),
                         ),
                       ],
                     ],
@@ -317,7 +324,9 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
         ),
         const SizedBox(width: 4),
-        Text(label, style: const TextStyle(color: Colors.white70, fontSize: 11)),
+        Text(label,
+            style: const TextStyle(
+                color: AppTheme.textSecondary, fontSize: 11)),
       ],
     );
   }
@@ -325,15 +334,17 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
   Widget _statTile(ThemeData theme, IconData icon, String label, String value) {
     return Column(
       children: [
-        Icon(icon, color: theme.colorScheme.primary, size: 20),
+        Icon(icon, color: AppTheme.accent, size: 20),
         const SizedBox(height: 6),
         Text(value,
             style: const TextStyle(
-                fontWeight: FontWeight.bold, fontSize: 15, color: Colors.white)),
+                fontWeight: FontWeight.bold,
+                fontSize: 15,
+                color: AppTheme.textPrimary)),
         const SizedBox(height: 2),
         Text(label,
             style: const TextStyle(
-                color: Colors.white54, fontSize: 10, letterSpacing: 1)),
+                color: AppTheme.textSecondary, fontSize: 10, letterSpacing: 1)),
       ],
     );
   }

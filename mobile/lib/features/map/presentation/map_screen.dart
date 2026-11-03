@@ -7,7 +7,9 @@ import 'package:latlong2/latlong.dart';
 import 'package:geolocator/geolocator.dart';
 import '../domain/polyline_engine.dart';
 import '../../ride/domain/ride_engine.dart';
+import '../../../core/theme/app_theme.dart';
 import '../../../database/models.dart';
+import '../../../shared/widgets/glass.dart';
 
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
@@ -118,18 +120,13 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     final initialCenter = _currentLocation ?? const LatLng(20.5937, 78.9629);
 
     return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        leading: IconButton(
-          icon: const Icon(Icons.arrow_back_ios),
-          onPressed: () => context.pop(),
-        ),
-        title: Text(rideState.isRecording ? 'LIVE MAP' : 'MAP'),
+      backgroundColor: AppTheme.background,
+      extendBodyBehindAppBar: true,
+      appBar: GlassAppBar(
+        title: rideState.isRecording ? 'Live Map' : 'Map',
         centerTitle: true,
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: Colors.blueAccent,
         onPressed: () {
           setState(() { _autoFollow = true; });
           final target = markerPos ?? _currentLocation;
@@ -137,7 +134,10 @@ class _MapScreenState extends ConsumerState<MapScreen> {
             _mapController.move(target, 16.0);
           }
         },
-        child: Icon(Icons.my_location, color: _autoFollow ? Colors.white : Colors.white54),
+        child: Icon(Icons.my_location,
+            color: _autoFollow
+                ? AppTheme.textPrimary
+                : AppTheme.textSecondary),
       ),
       body: FlutterMap(
         mapController: _mapController,
@@ -183,12 +183,12 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   height: 30,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: Colors.blueAccent.withOpacity(0.3),
+                      color: AppTheme.accent.withValues(alpha: 0.3),
                       shape: BoxShape.circle,
-                      border: Border.all(color: Colors.blueAccent, width: 2),
+                      border: Border.all(color: AppTheme.accent, width: 2),
                     ),
                     child: const Center(
-                      child: Icon(Icons.circle, color: Colors.blueAccent, size: 14),
+                      child: Icon(Icons.circle, color: AppTheme.accent, size: 14),
                     ),
                   ),
                 ),

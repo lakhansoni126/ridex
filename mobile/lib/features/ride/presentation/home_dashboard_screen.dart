@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../../../core/theme/app_theme.dart';
 import '../../../main.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 import '../../auth/application/auth_notifier.dart';
 
-// Provider that loads aggregate stats from the database
 final homeStatsProvider =
     FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
   final count = await dbService.getRideCount();
@@ -28,230 +28,201 @@ class HomeDashboardScreen extends ConsumerWidget {
     final statsAsync = ref.watch(homeStatsProvider);
     final user = ref.watch(authNotifierProvider).user;
 
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
+    return GlassScaffold(
+      padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
+              _GlassIconButton(
+                icon: Icons.directions_car,
+                tooltip: 'Garage',
+                onPressed: () => context.push('/garage'),
+              ),
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  GlassContainer(
-                    padding: const EdgeInsets.all(12),
-                    borderRadius: 16,
-                    child: IconButton(
-                      icon: const Icon(Icons.directions_car, color: Colors.white),
-                      tooltip: 'Garage',
-                      onPressed: () => context.push('/garage'),
-                    ),
+                  _GlassIconButton(
+                    icon: Icons.map_outlined,
+                    onPressed: () => context.push('/map'),
                   ),
-                  Row(
-                    children: [
-                      GlassContainer(
-                        padding: const EdgeInsets.all(12),
-                        borderRadius: 16,
-                        child: IconButton(
-                          icon: const Icon(Icons.map_outlined, color: Colors.white),
-                          onPressed: () => context.push('/map'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      GlassContainer(
-                        padding: const EdgeInsets.all(12),
-                        borderRadius: 16,
-                        child: IconButton(
-                          icon: const Icon(Icons.history, color: Colors.white),
-                          onPressed: () => context.push('/history'),
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      GlassContainer(
-                        padding: const EdgeInsets.all(12),
-                        borderRadius: 16,
-                        child: IconButton(
-                          icon: const Icon(Icons.logout, color: Colors.white70),
-                          tooltip: 'Sign out',
-                          onPressed: () =>
-                              ref.read(authNotifierProvider.notifier).logout(),
-                        ),
-                      ),
-                    ],
+                  const SizedBox(width: 10),
+                  _GlassIconButton(
+                    icon: Icons.history,
+                    onPressed: () => context.push('/history'),
+                  ),
+                  const SizedBox(width: 10),
+                  _GlassIconButton(
+                    icon: Icons.logout,
+                    tooltip: 'Sign out',
+                    onPressed: () =>
+                        ref.read(authNotifierProvider.notifier).logout(),
                   ),
                 ],
               ),
-              const SizedBox(height: 20),
-              Text('RideX', style: theme.textTheme.displayMedium),
-              const SizedBox(height: 8),
-              Text(
-                user != null
-                    ? 'Hey ${user.displayName} — ready for the road?'
-                    : 'Ready for the road? Connect GPS and start your drive.',
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 20),
-              SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: Row(
-                  children: [
-                    _NavChip(
-                      label: 'Discover',
-                      icon: Icons.explore_outlined,
-                      onTap: () => context.push('/rides'),
-                    ),
-                    _NavChip(
-                      label: 'Friends',
-                      icon: Icons.group_outlined,
-                      onTap: () => context.push('/friends'),
-                    ),
-                    _NavChip(
-                      label: 'Community',
-                      icon: Icons.forum_outlined,
-                      onTap: () => context.push('/community'),
-                    ),
-                    _NavChip(
-                      label: 'Share',
-                      icon: Icons.share_location,
-                      onTap: () => context.push('/sharing'),
-                    ),
-                    _NavChip(
-                      label: 'Garage',
-                      icon: Icons.directions_car_filled_outlined,
-                      onTap: () => context.push('/garage'),
-                    ),
-                  ],
+            ],
+          ),
+          const SizedBox(height: 28),
+          Text(
+            'RideX',
+            style: theme.textTheme.displayMedium?.copyWith(
+              foreground: Paint()
+                ..shader = const LinearGradient(
+                  colors: [AppTheme.textPrimary, Color(0xFFFF6B63)],
+                ).createShader(const Rect.fromLTWH(0, 0, 220, 70)),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            user != null
+                ? 'Hey ${user.displayName} — ready for the road?'
+                : 'Ready for the road? Connect GPS and start your drive.',
+            style: theme.textTheme.bodyMedium,
+          ),
+          const SizedBox(height: 22),
+          SingleChildScrollView(
+            scrollDirection: Axis.horizontal,
+            child: Row(
+              children: [
+                GlassNavChip(
+                  label: 'Discover',
+                  icon: Icons.explore_outlined,
+                  onTap: () => context.push('/rides'),
                 ),
-              ),
-              const Spacer(),
-              Center(
-                child: GlassContainer(
-                  borderRadius: 100,
-                  padding: const EdgeInsets.all(32),
-                  child: InkWell(
-                    onTap: () => context.push('/ride'),
-                    borderRadius: BorderRadius.circular(100),
-                    child: Container(
-                      width: 160,
-                      height: 160,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: theme.colorScheme.primary,
-                        boxShadow: [
-                          BoxShadow(
-                            color: theme.colorScheme.primary.withOpacity(0.4),
-                            blurRadius: 30,
-                            spreadRadius: 5,
-                          ),
-                        ],
+                GlassNavChip(
+                  label: 'Friends',
+                  icon: Icons.group_outlined,
+                  onTap: () => context.push('/friends'),
+                ),
+                GlassNavChip(
+                  label: 'Community',
+                  icon: Icons.forum_outlined,
+                  onTap: () => context.push('/community'),
+                ),
+                GlassNavChip(
+                  label: 'Share',
+                  icon: Icons.share_location,
+                  onTap: () => context.push('/sharing'),
+                ),
+                GlassNavChip(
+                  label: 'Garage',
+                  icon: Icons.directions_car_filled_outlined,
+                  onTap: () => context.push('/garage'),
+                ),
+              ],
+            ),
+          ),
+          const Spacer(),
+          Center(
+            child: GlassContainer(
+              variant: GlassVariant.intense,
+              borderRadius: 120,
+              padding: const EdgeInsets.all(18),
+              child: InkWell(
+                onTap: () => context.push('/ride'),
+                borderRadius: BorderRadius.circular(100),
+                child: Container(
+                  width: 168,
+                  height: 168,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    gradient: const LinearGradient(
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                      colors: [Color(0xFFFF2D20), AppTheme.accent],
+                    ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: AppTheme.accent.withValues(alpha: 0.45),
+                        blurRadius: 36,
+                        spreadRadius: 2,
                       ),
-                      child: const Center(
-                        child: Text(
-                          'START',
-                          style: TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.bold,
-                            letterSpacing: 2,
-                            color: Colors.white,
-                          ),
-                        ),
+                    ],
+                  ),
+                  child: const Center(
+                    child: Text(
+                      'START',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 2.4,
+                        color: Colors.white,
                       ),
                     ),
                   ),
                 ),
               ),
-              const Spacer(),
-              statsAsync.when(
-                loading: () => Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildStat(context, '--', 'RIDES'),
-                    _buildStat(context, '-- km', 'TOTAL DIST'),
-                    _buildStat(context, '-- km/h', 'TOP SPEED'),
-                  ],
-                ),
-                error: (_, __) => Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildStat(context, '0', 'RIDES'),
-                    _buildStat(context, '0 km', 'TOTAL DIST'),
-                    _buildStat(context, '0 km/h', 'TOP SPEED'),
-                  ],
-                ),
-                data: (stats) => Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildStat(context, '${stats['count']}', 'RIDES'),
-                    _buildStat(
-                      context,
+            ),
+          ),
+          const Spacer(),
+          statsAsync.when(
+            loading: () => const Row(
+              children: [
+                GlassStatCard(value: '--', label: 'Rides'),
+                SizedBox(width: 10),
+                GlassStatCard(value: '-- km', label: 'Total Dist'),
+                SizedBox(width: 10),
+                GlassStatCard(value: '--', label: 'Top Speed'),
+              ],
+            ),
+            error: (_, __) => const Row(
+              children: [
+                GlassStatCard(value: '0', label: 'Rides'),
+                SizedBox(width: 10),
+                GlassStatCard(value: '0 km', label: 'Total Dist'),
+                SizedBox(width: 10),
+                GlassStatCard(value: '0', label: 'Top Speed'),
+              ],
+            ),
+            data: (stats) => Row(
+              children: [
+                GlassStatCard(value: '${stats['count']}', label: 'Rides'),
+                const SizedBox(width: 10),
+                GlassStatCard(
+                  value:
                       '${(stats['totalDist'] as double).toStringAsFixed(1)} km',
-                      'TOTAL DIST',
-                    ),
-                    _buildStat(
-                      context,
-                      '${(stats['topSpeed'] as double).toStringAsFixed(0)} km/h',
-                      'TOP SPEED',
-                    ),
-                  ],
+                  label: 'Total Dist',
                 ),
-              ),
-              const SizedBox(height: 40),
-            ],
+                const SizedBox(width: 10),
+                GlassStatCard(
+                  value:
+                      '${(stats['topSpeed'] as double).toStringAsFixed(0)} km/h',
+                  label: 'Top Speed',
+                ),
+              ],
+            ),
           ),
-        ),
+          const SizedBox(height: 12),
+        ],
       ),
-    );
-  }
-
-  Widget _buildStat(BuildContext context, String value, String label) {
-    final theme = Theme.of(context);
-    return Column(
-      children: [
-        Text(value, style: theme.textTheme.titleLarge),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontSize: 12,
-            letterSpacing: 1.5,
-          ),
-        ),
-      ],
     );
   }
 }
 
-class _NavChip extends StatelessWidget {
-  const _NavChip({
-    required this.label,
+class _GlassIconButton extends StatelessWidget {
+  const _GlassIconButton({
     required this.icon,
-    required this.onTap,
+    required this.onPressed,
+    this.tooltip,
   });
 
-  final String label;
   final IconData icon;
-  final VoidCallback onTap;
+  final VoidCallback onPressed;
+  final String? tooltip;
 
   @override
   Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.only(right: 10),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: GlassContainer(
-          borderRadius: 16,
-          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(icon, color: Colors.white, size: 20),
-              const SizedBox(width: 8),
-              Text(label, style: const TextStyle(color: Colors.white)),
-            ],
-          ),
-        ),
+    final button = GlassContainer(
+      variant: GlassVariant.chip,
+      borderRadius: 16,
+      padding: const EdgeInsets.all(4),
+      child: IconButton(
+        icon: Icon(icon, color: AppTheme.textPrimary),
+        onPressed: onPressed,
+        tooltip: tooltip,
       ),
     );
+    return button;
   }
 }

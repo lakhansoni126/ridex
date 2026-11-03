@@ -4,7 +4,7 @@ import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 
 /// Explains why RideX needs Always location before requesting it.
 class PermissionEducationScreen extends ConsumerStatefulWidget {
@@ -41,7 +41,6 @@ class _PermissionEducationScreenState
             _message = 'Location is required for group drives and sharing.');
         return;
       }
-      // Second prompt can escalate to Always on supported platforms.
       if (permission == LocationPermission.whileInUse) {
         await Geolocator.requestPermission();
       }
@@ -54,71 +53,53 @@ class _PermissionEducationScreenState
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    return Scaffold(
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const SizedBox(height: 24),
-              Text('Stay connected on the road', style: theme.textTheme.titleLarge),
-              const SizedBox(height: 12),
-              Text(
-                'RideX uses your location in the background so friends can see you '
-                'during live group drives and while you choose to share.',
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 32),
-              GlassContainer(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _row(Icons.groups_outlined, 'Live group drives',
-                        'Show your position to participants while a drive is live.'),
-                    const SizedBox(height: 20),
-                    _row(Icons.share_location, 'Optional location sharing',
-                        'Share with chosen friends for a set duration — you can stop anytime.'),
-                    const SizedBox(height: 20),
-                    _row(Icons.lock_outline, 'You stay in control',
-                        'We only stream when a drive is live or you start a share.'),
-                  ],
-                ),
-              ),
-              if (_message != null) ...[
-                const SizedBox(height: 16),
-                Text(_message!, style: const TextStyle(color: AppTheme.accent)),
-              ],
-              const Spacer(),
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: ElevatedButton(
-                  onPressed: _busy ? null : _request,
-                  child: _busy
-                      ? const SizedBox(
-                          width: 22,
-                          height: 22,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Text('ALLOW LOCATION'),
-                ),
-              ),
-              const SizedBox(height: 12),
-              SizedBox(
-                width: double.infinity,
-                height: 56,
-                child: TextButton(
-                  onPressed: () => context.go('/'),
-                  child: const Text(
-                    'Skip for now',
-                    style: TextStyle(color: Colors.white70),
-                  ),
-                ),
-              ),
-            ],
+    return GlassScaffold(
+      padding: const EdgeInsets.all(24),
+      body: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 24),
+          Text('Stay connected on the road', style: theme.textTheme.titleLarge),
+          const SizedBox(height: 12),
+          Text(
+            'RideX uses your location in the background so friends can see you '
+            'during live group drives and while you choose to share.',
+            style: theme.textTheme.bodyMedium,
           ),
-        ),
+          const SizedBox(height: 32),
+          GlassContainer(
+            variant: GlassVariant.intense,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _row(Icons.groups_outlined, 'Live group drives',
+                    'Show your position to participants while a drive is live.'),
+                const SizedBox(height: 20),
+                _row(Icons.share_location, 'Optional location sharing',
+                    'Share with chosen friends for a set duration — you can stop anytime.'),
+                const SizedBox(height: 20),
+                _row(Icons.lock_outline, 'You stay in control',
+                    'We only stream when a drive is live or you start a share.'),
+              ],
+            ),
+          ),
+          if (_message != null) ...[
+            const SizedBox(height: 16),
+            Text(_message!, style: const TextStyle(color: AppTheme.accent)),
+          ],
+          const Spacer(),
+          GlassButton(
+            label: 'ALLOW LOCATION',
+            busy: _busy,
+            onPressed: _busy ? null : _request,
+          ),
+          const SizedBox(height: 12),
+          GlassButton(
+            label: 'Skip for now',
+            style: GlassButtonStyle.secondary,
+            onPressed: () => context.go('/'),
+          ),
+        ],
       ),
     );
   }
@@ -133,9 +114,12 @@ class _PermissionEducationScreenState
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Text(title, style: const TextStyle(color: Colors.white, fontSize: 16)),
+              Text(title,
+                  style: const TextStyle(
+                      color: AppTheme.textPrimary, fontSize: 16)),
               const SizedBox(height: 4),
-              Text(body, style: const TextStyle(color: AppTheme.textSecondary)),
+              Text(body,
+                  style: const TextStyle(color: AppTheme.textSecondary)),
             ],
           ),
         ),

@@ -3,7 +3,8 @@ import 'package:go_router/go_router.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:fl_chart/fl_chart.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../core/theme/app_theme.dart';
+import '../../../shared/widgets/glass.dart';
 
 class RideReplayScreen extends StatefulWidget {
   const RideReplayScreen({super.key});
@@ -64,26 +65,33 @@ class _RideReplayScreenState extends State<RideReplayScreen> {
                   Row(
                     children: [
                       GlassContainer(
-                        padding: const EdgeInsets.all(8),
+                        variant: GlassVariant.mapOverlay,
+                        padding: const EdgeInsets.all(4),
                         borderRadius: 12,
                         child: IconButton(
-                          icon: const Icon(Icons.arrow_back_ios, color: Colors.white),
+                          icon: const Icon(Icons.arrow_back_ios, color: AppTheme.textPrimary),
                           onPressed: () => context.pop(),
                         ),
                       ),
                       const SizedBox(width: 16),
                       const GlassContainer(
+                        variant: GlassVariant.mapOverlay,
                         padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                         borderRadius: 12,
                         child: Text(
                           'RIDE REPLAY',
-                          style: TextStyle(fontWeight: FontWeight.bold, letterSpacing: 2),
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 2,
+                            color: AppTheme.textPrimary,
+                          ),
                         ),
                       ),
                     ],
                   ),
                   const Spacer(),
                   GlassContainer(
+                    variant: GlassVariant.mapOverlay,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
@@ -99,13 +107,13 @@ class _RideReplayScreenState extends State<RideReplayScreen> {
                                 LineChartBarData(
                                   spots: mockElevationPoints,
                                   isCurved: true,
-                                  color: Colors.blueAccent,
+                                  color: AppTheme.accent,
                                   barWidth: 2,
                                   isStrokeCapRound: true,
                                   dotData: const FlDotData(show: false),
                                   belowBarData: BarAreaData(
                                     show: true,
-                                    color: Colors.blueAccent.withOpacity(0.2),
+                                    color: AppTheme.accent.withValues(alpha: 0.2),
                                   ),
                                 ),
                               ],

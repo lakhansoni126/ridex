@@ -5,7 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/api/api_client.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 import 'discover_rides_screen.dart';
 
 class JoinRideScreen extends ConsumerStatefulWidget {
@@ -52,53 +52,42 @@ class _JoinRideScreenState extends ConsumerState<JoinRideScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text('Join with code'),
-      ),
-      body: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          children: [
-            GlassContainer(
-              child: TextField(
-                controller: _code,
-                textCapitalization: TextCapitalization.characters,
-                style: const TextStyle(
-                  color: Colors.white,
-                  letterSpacing: 4,
-                  fontSize: 22,
-                ),
-                decoration: const InputDecoration(
-                  labelText: 'Join code',
-                  labelStyle: TextStyle(color: AppTheme.textSecondary),
-                  border: InputBorder.none,
-                ),
+    return GlassScaffold(
+      appBar: const GlassAppBar(title: 'Join with code'),
+      padding: const EdgeInsets.all(24),
+      body: Column(
+        children: [
+          GlassContainer(
+            variant: GlassVariant.intense,
+            borderRadius: 22,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: TextField(
+              controller: _code,
+              textCapitalization: TextCapitalization.characters,
+              style: const TextStyle(
+                color: AppTheme.textPrimary,
+                letterSpacing: 4,
+                fontSize: 22,
+              ),
+              cursorColor: AppTheme.accent,
+              decoration: const InputDecoration(
+                labelText: 'Join code',
+                labelStyle: TextStyle(color: AppTheme.textSecondary),
+                border: InputBorder.none,
               ),
             ),
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              Text(_error!, style: const TextStyle(color: AppTheme.accent)),
-            ],
-            const SizedBox(height: 32),
-            SizedBox(
-              width: double.infinity,
-              height: 56,
-              child: ElevatedButton(
-                onPressed: _busy ? null : _submit,
-                child: _busy
-                    ? const SizedBox(
-                        width: 22,
-                        height: 22,
-                        child: CircularProgressIndicator(strokeWidth: 2),
-                      )
-                    : const Text('JOIN DRIVE'),
-              ),
-            ),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 16),
+            Text(_error!, style: const TextStyle(color: AppTheme.accent)),
           ],
-        ),
+          const SizedBox(height: 32),
+          GlassButton(
+            label: 'JOIN DRIVE',
+            busy: _busy,
+            onPressed: _busy ? null : _submit,
+          ),
+        ],
       ),
     );
   }

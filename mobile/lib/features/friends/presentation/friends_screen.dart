@@ -5,7 +5,7 @@ import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/api/api_client.dart';
 import '../../../data/api/friends_repository.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 
 final friendsListProvider =
     FutureProvider.autoDispose<List<PublicUserDto>>((ref) {
@@ -65,12 +65,8 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
     final requestsAsync = ref.watch(friendRequestsProvider);
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text('Friends'),
-      ),
+    return GlassScaffold(
+      appBar: const GlassAppBar(title: 'Friends'),
       body: RefreshIndicator(
         color: AppTheme.accent,
         onRefresh: () async {
@@ -81,13 +77,15 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
           padding: const EdgeInsets.all(24),
           children: [
             GlassContainer(
-              padding: const EdgeInsets.all(16),
+              variant: GlassVariant.intense,
+              padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
                   Expanded(
                     child: TextField(
                       controller: _username,
-                      style: const TextStyle(color: Colors.white),
+                      style: const TextStyle(color: AppTheme.textPrimary),
+                      cursorColor: AppTheme.accent,
                       decoration: const InputDecoration(
                         hintText: 'Add by username',
                         hintStyle: TextStyle(color: AppTheme.textSecondary),
@@ -178,6 +176,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                         (f) => Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: GlassContainer(
+                            variant: GlassVariant.card,
                             padding: const EdgeInsets.all(16),
                             borderRadius: 16,
                             child: Row(
@@ -196,7 +195,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
                                     children: [
                                       Text(f.displayName,
                                           style: const TextStyle(
-                                              color: Colors.white)),
+                                              color: AppTheme.textPrimary)),
                                       Text('@${f.username}',
                                           style: theme.textTheme.bodyMedium
                                               ?.copyWith(fontSize: 13)),
@@ -236,6 +235,7 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: GlassContainer(
+        variant: GlassVariant.card,
         padding: const EdgeInsets.all(16),
         borderRadius: 16,
         child: Row(
@@ -244,7 +244,8 @@ class _FriendsScreenState extends ConsumerState<FriendsScreen> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(title, style: const TextStyle(color: Colors.white)),
+                  Text(title,
+                      style: const TextStyle(color: AppTheme.textPrimary)),
                   Text(subtitle,
                       style: const TextStyle(
                           color: AppTheme.textSecondary, fontSize: 13)),

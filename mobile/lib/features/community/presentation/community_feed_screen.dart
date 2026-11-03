@@ -7,7 +7,7 @@ import '../../../core/config.dart';
 import '../../../core/providers.dart';
 import '../../../core/theme/app_theme.dart';
 import '../../../data/api/posts_repository.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 
 final communityFeedProvider =
     FutureProvider.autoDispose<PostFeedDto>((ref) {
@@ -22,11 +22,9 @@ class CommunityFeedScreen extends ConsumerWidget {
     final feedAsync = ref.watch(communityFeedProvider);
     final theme = Theme.of(context);
 
-    return Scaffold(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        title: const Text('Community'),
+    return GlassScaffold(
+      appBar: GlassAppBar(
+        title: 'Community',
         actions: [
           IconButton(
             icon: const Icon(Icons.edit_outlined),
@@ -35,9 +33,8 @@ class CommunityFeedScreen extends ConsumerWidget {
         ],
       ),
       floatingActionButton: FloatingActionButton(
-        backgroundColor: AppTheme.accent,
         onPressed: () => context.push('/community/compose'),
-        child: const Icon(Icons.add, color: Colors.white),
+        child: const Icon(Icons.add),
       ),
       body: RefreshIndicator(
         color: AppTheme.accent,
@@ -142,6 +139,7 @@ class _PostCardState extends ConsumerState<_PostCard> {
     final when = DateFormat.MMMd().add_jm().format(_post.createdAt.toLocal());
 
     return GlassContainer(
+      variant: GlassVariant.card,
       padding: const EdgeInsets.all(16),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -149,12 +147,13 @@ class _PostCardState extends ConsumerState<_PostCard> {
           Text(
             _post.author?.displayName ?? 'Driver',
             style: const TextStyle(
-                color: Colors.white, fontWeight: FontWeight.w600),
+                color: AppTheme.textPrimary, fontWeight: FontWeight.w600),
           ),
           Text(when, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 12)),
           if (_post.caption != null && _post.caption!.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Text(_post.caption!, style: const TextStyle(color: Colors.white)),
+            Text(_post.caption!,
+                style: const TextStyle(color: AppTheme.textPrimary)),
           ],
           if (_post.images.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -199,23 +198,25 @@ class _PostCardState extends ConsumerState<_PostCard> {
                 onPressed: _toggleLike,
                 icon: Icon(
                   _post.likedByMe ? Icons.favorite : Icons.favorite_border,
-                  color: _post.likedByMe ? AppTheme.accent : Colors.white70,
+                  color: _post.likedByMe
+                      ? AppTheme.accent
+                      : AppTheme.textSecondary,
                 ),
               ),
               Text('${_post.likeCount}',
-                  style: const TextStyle(color: Colors.white70)),
+                  style: const TextStyle(color: AppTheme.textSecondary)),
               const SizedBox(width: 16),
               IconButton(
                 onPressed: _loadComments,
                 icon: const Icon(Icons.chat_bubble_outline,
-                    color: Colors.white70),
+                    color: AppTheme.textSecondary),
               ),
               Text('${_post.commentCount}',
-                  style: const TextStyle(color: Colors.white70)),
+                  style: const TextStyle(color: AppTheme.textSecondary)),
             ],
           ),
           if (_showComments) ...[
-            const Divider(color: Colors.white12),
+            const Divider(color: Color(0x1FFFFFFF)),
             if (_comments == null)
               const Padding(
                 padding: EdgeInsets.all(8),
@@ -236,7 +237,8 @@ class _PostCardState extends ConsumerState<_PostCard> {
                 Expanded(
                   child: TextField(
                     controller: _comment,
-                    style: const TextStyle(color: Colors.white),
+                    style: const TextStyle(color: AppTheme.textPrimary),
+                    cursorColor: AppTheme.accent,
                     decoration: const InputDecoration(
                       hintText: 'Add a comment',
                       hintStyle: TextStyle(color: AppTheme.textSecondary),

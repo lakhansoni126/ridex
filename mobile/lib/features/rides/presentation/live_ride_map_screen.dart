@@ -10,7 +10,7 @@ import '../../../core/theme/app_theme.dart';
 import '../../../data/api/rides_repository.dart';
 import '../../../data/ws/ws_client.dart';
 import '../../../features/auth/application/auth_notifier.dart';
-import '../../../shared/widgets/glass_container.dart';
+import '../../../shared/widgets/glass.dart';
 
 class LiveRideMapScreen extends ConsumerStatefulWidget {
   const LiveRideMapScreen({super.key, required this.rideId});
@@ -185,11 +185,13 @@ class _LiveRideMapScreenState extends ConsumerState<LiveRideMapScreen> {
   @override
   Widget build(BuildContext context) {
     if (_loading) {
-      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      return const GlassScaffold(
+        body: Center(child: CircularProgressIndicator()),
+      );
     }
     if (_error != null || _ride == null) {
-      return Scaffold(
-        appBar: AppBar(title: const Text('Drive')),
+      return GlassScaffold(
+        appBar: const GlassAppBar(title: 'Drive'),
         body: Center(child: Text(_error ?? 'Not found')),
       );
     }
@@ -252,6 +254,7 @@ class _LiveRideMapScreenState extends ConsumerState<LiveRideMapScreen> {
               child: Column(
                 children: [
                   GlassContainer(
+                    variant: GlassVariant.mapOverlay,
                     padding: const EdgeInsets.symmetric(
                         horizontal: 16, vertical: 12),
                     borderRadius: 16,
@@ -282,6 +285,7 @@ class _LiveRideMapScreenState extends ConsumerState<LiveRideMapScreen> {
                   ),
                   const Spacer(),
                   GlassContainer(
+                    variant: GlassVariant.mapOverlay,
                     padding: const EdgeInsets.all(16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -322,14 +326,14 @@ class _LiveRideMapScreenState extends ConsumerState<LiveRideMapScreen> {
                         ),
                         const SizedBox(height: 12),
                         if (_isHost && _ride!.status == 'scheduled')
-                          ElevatedButton(
+                          GlassButton(
+                            label: 'START DRIVE',
                             onPressed: _startRide,
-                            child: const Text('START DRIVE'),
                           ),
                         if (_isHost && _ride!.status == 'live')
-                          ElevatedButton(
+                          GlassButton(
+                            label: 'END DRIVE',
                             onPressed: _endRide,
-                            child: const Text('END DRIVE'),
                           ),
                         if (_ride!.status == 'live') ...[
                           const SizedBox(height: 8),
