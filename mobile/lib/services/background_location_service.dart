@@ -6,31 +6,46 @@ import 'package:geolocator/geolocator.dart';
 import '../data/api/rides_repository.dart';
 import '../data/api/shares_repository.dart';
 import '../data/local/location_buffer.dart';
-import '../data/local/token_store.dart';
 import '../data/ws/ws_client.dart';
 import 'location_service.dart';
 
-/// Background / foreground GPS stream for live group rides and location shares.
+/// What the background tracker is currently doing (drives UI badges).
+@immutable
+class TrackingStatus {
+  const TrackingStatus({
+    this.rideId,
+    this.shareId,
+    this.permissionDenied = false,
+    this.lastFixAt,
+  });
+
+  final String? rideId;
+  final String? shareId;
+  final bool permissionDenied;
+  final DateTime? lastFixAt;
+
+  bool get isTracking => rideId != null || shareId != null;
+}
+
+/// Foreground-service GPS stream for live group drives and location shares.
 ///
-/// Buffers points locally and batch-syncs to the API; also emits WS location
-/// messages when a socket session is attached.
+/// Every fix is persisted to [LocationBuffer] first (offline-safe), pushed
+/// over the WebSocket when connected for low latency, and batch-synced over
+/// REST every few seconds. The server de-duplicates by timestamp.
 class BackgroundLocationService {
   BackgroundLocationService({
     required LocationBuffer buffer,
     required RidesRepository ridesRepository,
     required SharesRepository sharesRepository,
-    required TokenStore tokenStore,
     LocationService? locationService,
   })  : _buffer = buffer,
         _rides = ridesRepository,
         _shares = sharesRepository,
-        _tokens = tokenStore,
         _location = locationService ?? LocationService();
 
   final LocationBuffer _buffer;
   final RidesRepository _rides;
   final SharesRepository _shares;
-  final TokenStore _tokens;
   final LocationService _location;
 
   StreamSubscription<Position>? _sub;
@@ -44,43 +59,43 @@ class BackgroundLocationService {
   double? _lastLat;
   double? _lastLon;
 
+  final status = ValueNotifier(const TrackingStatus());
+
   bool get isTracking => _sub != null;
   String? get activeRideId => _activeRideId;
   String? get activeShareId => _activeShareId;
 
-  Future<bool> ensurePermissions({bool requestAlways = false}) async {
-    final ok = await _location.requestPermissions();
-    if (!ok) return false;
-    if (requestAlways) {
-      final permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.whileInUse) {
-        // Prompt again — on Android 10+ this can escalate to "Allow all the time".
-        await Geolocator.requestPermission();
-      }
-    }
-    return true;
+  void _publish({bool permissionDenied = false, DateTime? fix}) {
+    status.value = TrackingStatus(
+      rideId: _activeRideId,
+      shareId: _activeShareId,
+      permissionDenied: permissionDenied,
+      lastFixAt: fix ?? status.value.lastFixAt,
+    );
   }
 
-  Future<void> startForRide({
+  /// Returns false when location permission is unavailable.
+  Future<bool> startForRide({
     required String rideId,
     String status = 'riding',
     RideWsSession? ws,
   }) async {
     _activeRideId = rideId;
     _participantStatus = status;
-    _rideWs = ws;
-    await _ensureStream();
+    if (ws != null) _rideWs = ws;
+    return _ensureStream();
   }
 
-  Future<void> startForShare({
+  Future<bool> startForShare({
     required String shareId,
     LocationShareWsSession? ws,
   }) async {
     _activeShareId = shareId;
-    _shareWs = ws;
-    await _ensureStream();
+    if (ws != null) _shareWs = ws;
+    return _ensureStream();
   }
 
+  /// Lets a screen hand its socket to the tracker (or detach with null).
   void attachRideWs(RideWsSession? ws) => _rideWs = ws;
   void attachShareWs(LocationShareWsSession? ws) => _shareWs = ws;
 
@@ -91,41 +106,53 @@ class BackgroundLocationService {
 
   Future<void> stopRide() async {
     _activeRideId = null;
-    await _rideWs?.disconnect();
     _rideWs = null;
     await _maybeStopStream();
+    _publish();
   }
 
   Future<void> stopShare() async {
+    final ws = _shareWs;
     _activeShareId = null;
-    await _shareWs?.disconnect();
     _shareWs = null;
+    await ws?.disconnect();
     await _maybeStopStream();
+    _publish();
   }
 
   Future<void> stopAll() async {
+    final shareWs = _shareWs;
     _activeRideId = null;
     _activeShareId = null;
-    await _rideWs?.disconnect();
-    await _shareWs?.disconnect();
     _rideWs = null;
     _shareWs = null;
+    await shareWs?.disconnect();
     await _stopStream();
+    _publish();
   }
 
-  Future<void> _ensureStream() async {
-    if (_sub != null) return;
-    final ok = await ensurePermissions(requestAlways: true);
+  Future<bool> _ensureStream() async {
+    if (_sub != null) {
+      _publish();
+      return true;
+    }
+    final ok = await _location.requestPermissions();
     if (!ok) {
       debugPrint('BackgroundLocationService: permissions denied');
-      return;
+      _activeRideId = null;
+      _activeShareId = null;
+      _publish(permissionDenied: true);
+      return false;
     }
     _sub = _location.getPositionStream().listen(
-      _onPosition,
-      onError: (Object e) => debugPrint('BackgroundLocationService GPS: $e'),
-    );
+          _onPosition,
+          onError: (Object e) =>
+              debugPrint('BackgroundLocationService GPS: $e'),
+        );
     _syncTimer?.cancel();
-    _syncTimer = Timer.periodic(const Duration(seconds: 8), (_) => flush());
+    _syncTimer = Timer.periodic(const Duration(seconds: 6), (_) => flush());
+    _publish();
+    return true;
   }
 
   Future<void> _maybeStopStream() async {
@@ -139,6 +166,7 @@ class BackgroundLocationService {
     _sub = null;
     _syncTimer?.cancel();
     _syncTimer = null;
+    _lastEmitAt = null;
     await flush();
   }
 
@@ -150,28 +178,24 @@ class BackgroundLocationService {
   }
 
   Future<void> _onPosition(Position pos) async {
+    // Ignore wildly inaccurate fixes (tunnels, indoor).
+    if (!pos.accuracy.isNaN && pos.accuracy > 100) return;
+
     final now = DateTime.now().toUtc();
     final interval = _adaptiveInterval(pos);
     if (_lastEmitAt != null && now.difference(_lastEmitAt!) < interval) {
-      // Still accept if moved meaningfully
-      if (_lastLat != null && _lastLon != null) {
-        final moved = Geolocator.distanceBetween(
-          _lastLat!,
-          _lastLon!,
-          pos.latitude,
-          pos.longitude,
-        );
-        if (moved < 8) return;
-      } else {
-        return;
-      }
+      if (_lastLat == null || _lastLon == null) return;
+      final moved = Geolocator.distanceBetween(
+          _lastLat!, _lastLon!, pos.latitude, pos.longitude);
+      if (moved < 15) return;
     }
     _lastEmitAt = now;
     _lastLat = pos.latitude;
     _lastLon = pos.longitude;
+    _publish(fix: now);
 
-    final speedMps = pos.speed.isNaN ? null : pos.speed;
-    final heading = pos.heading.isNaN ? null : pos.heading;
+    final speedMps = pos.speed.isNaN || pos.speed < 0 ? null : pos.speed;
+    final heading = pos.heading.isNaN || pos.heading < 0 ? null : pos.heading;
     final accuracy = pos.accuracy.isNaN ? null : pos.accuracy;
 
     final rideId = _activeRideId;
@@ -228,6 +252,4 @@ class BackgroundLocationService {
       }
     });
   }
-
-  Future<String?> currentAccessToken() => _tokens.readAccessToken();
 }

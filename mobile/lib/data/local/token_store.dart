@@ -47,6 +47,11 @@ class TokenStore {
     await prefs.setString(_kUser, jsonEncode(user.toJson()));
   }
 
+  Future<void> saveUser(AuthUser user) async {
+    final prefs = await _ensure();
+    await prefs.setString(_kUser, jsonEncode(user.toJson()));
+  }
+
   Future<void> writeTokens(String access, String refresh) async {
     final prefs = await _ensure();
     await prefs.setString(_kAccess, access);

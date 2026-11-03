@@ -76,4 +76,33 @@ class DatabaseService {
     }
     return top;
   }
+
+  /// All rides, newest first, without GPS points (cheap for lists).
+  Future<List<Ride>> getRidesNewestFirst() =>
+      _isar.rides.where().sortByStartTimeDesc().findAll();
+
+  /// Most recent rides first, without loading their GPS points.
+  Future<List<Ride>> getRecentRides({int limit = 5}) async {
+    return _isar.rides.where().sortByStartTimeDesc().limit(limit).findAll();
+  }
+
+  Future<void> deleteRide(int id) async {
+    await _isar.writeTxn(() async {
+      final ride = await _isar.rides.get(id);
+      if (ride == null) return;
+      await ride.points.load();
+      await _isar.ridePoints.deleteAll(ride.points.map((p) => p.id).toList());
+      await _isar.rides.delete(id);
+    });
+  }
+
+  Future<List<Vehicle>> getVehicles() => _isar.vehicles.where().findAll();
+
+  Future<void> saveVehicle(Vehicle vehicle) async {
+    await _isar.writeTxn(() => _isar.vehicles.put(vehicle));
+  }
+
+  Future<void> deleteVehicle(int id) async {
+    await _isar.writeTxn(() => _isar.vehicles.delete(id));
+  }
 }

@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http_parser/http_parser.dart';
 
 import 'api_client.dart';
 import 'friends_repository.dart';
@@ -21,8 +22,8 @@ class PostImageDto {
   factory PostImageDto.fromJson(Map<String, dynamic> json) => PostImageDto(
         id: json['id'] as String,
         filePath: json['file_path'] as String,
-        thumbPath: json['thumb_path'] as String,
-        sortOrder: json['sort_order'] as int? ?? 0,
+        thumbPath: json['thumb_path'] as String? ?? json['file_path'] as String,
+        sortOrder: (json['sort_order'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -48,10 +49,9 @@ class CommentDto {
         postId: json['post_id'] as String,
         userId: json['user_id'] as String,
         body: json['body'] as String,
-        createdAt: DateTime.parse(json['created_at'] as String),
-        user: json['user'] != null
-            ? PublicUserDto.fromJson(json['user'] as Map<String, dynamic>)
-            : null,
+        createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+            DateTime.now(),
+        user: PublicUserDto.maybe(json['user']),
       );
 }
 
@@ -90,13 +90,12 @@ class PostDto {
         caption: json['caption'] as String?,
         rideId: json['ride_id'] as String?,
         distanceKm: (json['distance_km'] as num?)?.toDouble(),
-        durationS: json['duration_s'] as int?,
-        likeCount: json['like_count'] as int? ?? 0,
-        commentCount: json['comment_count'] as int? ?? 0,
-        createdAt: DateTime.parse(json['created_at'] as String),
-        author: json['author'] != null
-            ? PublicUserDto.fromJson(json['author'] as Map<String, dynamic>)
-            : null,
+        durationS: (json['duration_s'] as num?)?.toInt(),
+        likeCount: (json['like_count'] as num?)?.toInt() ?? 0,
+        commentCount: (json['comment_count'] as num?)?.toInt() ?? 0,
+        createdAt: DateTime.tryParse(json['created_at'] as String? ?? '') ??
+            DateTime.now(),
+        author: PublicUserDto.maybe(json['author']),
         images: (json['images'] as List<dynamic>? ?? [])
             .map((e) => PostImageDto.fromJson(e as Map<String, dynamic>))
             .toList(),
@@ -127,7 +126,7 @@ class PostFeedDto {
   final String? nextCursor;
 
   factory PostFeedDto.fromJson(Map<String, dynamic> json) => PostFeedDto(
-        posts: (json['posts'] as List<dynamic>)
+        posts: (json['posts'] as List<dynamic>? ?? [])
             .map((e) => PostDto.fromJson(e as Map<String, dynamic>))
             .toList(),
         nextCursor: json['next_cursor'] as String?,
@@ -141,8 +140,8 @@ class LikeResultDto {
   final int likeCount;
 
   factory LikeResultDto.fromJson(Map<String, dynamic> json) => LikeResultDto(
-        liked: json['liked'] as bool,
-        likeCount: json['like_count'] as int,
+        liked: json['liked'] as bool? ?? false,
+        likeCount: (json['like_count'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -151,12 +150,15 @@ class PostsRepository {
 
   final ApiClient _api;
 
-  Future<PostFeedDto> feed({String? cursor, int limit = 20}) async {
-    final query = <String, String>{
+  static const maxImages = 4;
+
+  Future<PostFeedDto> feed(
+      {String? cursor, int limit = 20, String? authorId}) async {
+    final response = await _api.get('/posts', query: {
       'limit': '$limit',
       if (cursor != null) 'cursor': cursor,
-    };
-    final response = await _api.get('/posts', query: query);
+      if (authorId != null) 'author_id': authorId,
+    });
     return PostFeedDto.fromJson(ApiClient.decodeMap(response));
   }
 
@@ -168,42 +170,52 @@ class PostsRepository {
   }) async {
     final fields = <String, String>{
       if (caption != null) 'caption': caption,
-      if (distanceKm != null) 'distance_km': '$distanceKm',
+      if (distanceKm != null) 'distance_km': distanceKm.toStringAsFixed(2),
       if (durationS != null) 'duration_s': '$durationS',
     };
-    final files = <http.MultipartFile>[];
-    for (var i = 0; i < images.length; i++) {
-      files.add(await http.MultipartFile.fromPath(
-        'images',
-        images[i].path,
-        filename: 'image_$i.jpg',
-      ));
-    }
     final response = await _api.postMultipart(
       '/posts',
       fields: fields,
-      files: files,
+      files: () async => [
+        for (var i = 0; i < images.length; i++)
+          await http.MultipartFile.fromPath(
+            'images',
+            images[i].path,
+            filename: 'image_$i.jpg',
+            contentType: MediaType('image', 'jpeg'),
+          ),
+      ],
     );
     return PostDto.fromJson(ApiClient.decodeMap(response));
   }
 
+  Future<PostDto> getPost(String postId) async =>
+      PostDto.fromJson(ApiClient.decodeMap(await _api.get('/posts/$postId')));
+
+  Future<void> deletePost(String postId) async {
+    ApiClient.decodeMap(await _api.delete('/posts/$postId'));
+  }
+
   Future<LikeResultDto> toggleLike(String postId) async {
-    final response = await _api.post('/posts/$postId/like');
-    return LikeResultDto.fromJson(ApiClient.decodeMap(response));
+    return LikeResultDto.fromJson(
+        ApiClient.decodeMap(await _api.post('/posts/$postId/like')));
   }
 
   Future<List<CommentDto>> listComments(String postId) async {
-    final response = await _api.get('/posts/$postId/comments');
-    return ApiClient.decodeList(response)
+    final data = ApiClient.decodeMap(await _api.get('/posts/$postId/comments'));
+    return (data['comments'] as List<dynamic>? ?? [])
         .map((e) => CommentDto.fromJson(e as Map<String, dynamic>))
         .toList();
   }
 
   Future<CommentDto> addComment(String postId, String body) async {
-    final response = await _api.post(
-      '/posts/$postId/comments',
-      body: {'body': body},
-    );
+    final response =
+        await _api.post('/posts/$postId/comments', body: {'body': body});
     return CommentDto.fromJson(ApiClient.decodeMap(response));
+  }
+
+  Future<void> deleteComment(String postId, String commentId) async {
+    ApiClient.decodeMap(
+        await _api.delete('/posts/$postId/comments/$commentId'));
   }
 }

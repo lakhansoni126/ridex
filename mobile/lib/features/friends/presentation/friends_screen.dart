@@ -1,11 +1,12 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
 import '../../../core/providers.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../data/api/api_client.dart';
 import '../../../data/api/friends_repository.dart';
-import '../../../shared/widgets/glass.dart';
+import '../../../shared/ui/ui.dart';
+import '../../sharing/presentation/location_sharing_screen.dart';
 
 final friendsListProvider =
     FutureProvider.autoDispose<List<PublicUserDto>>((ref) {
@@ -25,235 +26,304 @@ class FriendsScreen extends ConsumerStatefulWidget {
 }
 
 class _FriendsScreenState extends ConsumerState<FriendsScreen> {
-  final _username = TextEditingController();
-  bool _sending = false;
-  String? _message;
+  /// Request ids handled optimistically (hidden until the list reloads).
+  final Set<String> _hiddenRequests = {};
 
-  @override
-  void dispose() {
-    _username.dispose();
-    super.dispose();
+  /// Friend ids removed optimistically.
+  final Set<String> _hiddenFriends = {};
+
+  Future<void> _refresh() async {
+    ref.invalidate(friendsListProvider);
+    ref.invalidate(friendRequestsProvider);
+    ref.invalidate(locationSharesProvider);
+    try {
+      await Future.wait([
+        ref.read(friendsListProvider.future),
+        ref.read(friendRequestsProvider.future),
+      ]);
+    } catch (_) {}
+    if (mounted) {
+      setState(() {
+        _hiddenRequests.clear();
+        _hiddenFriends.clear();
+      });
+    }
   }
 
-  Future<void> _sendRequest() async {
-    final name = _username.text.trim();
-    if (name.length < 3) {
-      setState(() => _message = 'Enter a username');
-      return;
-    }
-    setState(() {
-      _sending = true;
-      _message = null;
-    });
+  Future<void> _accept(FriendshipDto f) async {
+    HapticFeedback.mediumImpact();
+    setState(() => _hiddenRequests.add(f.id));
     try {
-      await ref.read(friendsRepositoryProvider).sendRequest(name);
-      _username.clear();
+      await ref.read(friendsRepositoryProvider).acceptRequest(f.id);
+      if (!mounted) return;
+      showRxToast(context,
+          "You're now friends with ${f.user?.displayName ?? 'this driver'}");
+      ref.invalidate(friendsListProvider);
       ref.invalidate(friendRequestsProvider);
-      setState(() => _message = 'Request sent');
-    } on ApiException catch (e) {
-      setState(() => _message = e.message);
     } catch (e) {
-      setState(() => _message = e.toString());
-    } finally {
-      if (mounted) setState(() => _sending = false);
+      if (!mounted) return;
+      setState(() => _hiddenRequests.remove(f.id));
+      showRxError(context, e);
+    }
+  }
+
+  Future<void> _decline(FriendshipDto f) async {
+    HapticFeedback.selectionClick();
+    setState(() => _hiddenRequests.add(f.id));
+    try {
+      await ref.read(friendsRepositoryProvider).declineRequest(f.id);
+      ref.invalidate(friendRequestsProvider);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _hiddenRequests.remove(f.id));
+      showRxError(context, e);
+    }
+  }
+
+  Future<void> _cancel(FriendshipDto f) async {
+    HapticFeedback.selectionClick();
+    setState(() => _hiddenRequests.add(f.id));
+    try {
+      await ref.read(friendsRepositoryProvider).cancelRequest(f.id);
+      ref.invalidate(friendRequestsProvider);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _hiddenRequests.remove(f.id));
+      showRxError(context, e);
+    }
+  }
+
+  Future<void> _friendMenu(PublicUserDto friend) async {
+    HapticFeedback.selectionClick();
+    final choice = await showRxActionSheet<String>(
+      context,
+      title: friend.displayName,
+      message: '@${friend.username}',
+      actions: const [
+        RxSheetAction(
+            label: 'Remove Friend', value: 'remove', destructive: true),
+      ],
+    );
+    if (choice != 'remove' || !mounted) return;
+    final ok = await confirmRx(
+      context,
+      title: 'Remove ${friend.displayName}?',
+      message:
+          'They will no longer see your shared location or appear in your friends list.',
+      confirmLabel: 'Remove',
+    );
+    if (!ok || !mounted) return;
+    setState(() => _hiddenFriends.add(friend.id));
+    try {
+      await ref.read(friendsRepositoryProvider).unfriend(friend.id);
+      ref.invalidate(friendsListProvider);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _hiddenFriends.remove(friend.id));
+      showRxError(context, e);
     }
   }
 
   @override
   Widget build(BuildContext context) {
+    final rx = context.rx;
     final friendsAsync = ref.watch(friendsListProvider);
     final requestsAsync = ref.watch(friendRequestsProvider);
-    final theme = Theme.of(context);
+    final sharesAsync = ref.watch(locationSharesProvider);
 
-    return GlassScaffold(
-      appBar: const GlassAppBar(title: 'Friends'),
-      body: RefreshIndicator(
-        color: AppTheme.accent,
-        onRefresh: () async {
-          ref.invalidate(friendsListProvider);
-          ref.invalidate(friendRequestsProvider);
-        },
-        child: ListView(
-          padding: const EdgeInsets.all(24),
+    final shares = sharesAsync.valueOrNull;
+    final active = shares?.activeMine;
+    final sharingDetail = active == null
+        ? 'Off'
+        : 'With ${active.grants.where((g) => g.isActive).length}';
+    final sharingWithMe = shares?.sharedWithMe.length ?? 0;
+
+    final slivers = <Widget>[];
+
+    // ── Location ─────────────────────────────────────────────────────────
+    slivers.add(SliverToBoxAdapter(
+      child: Padding(
+        padding: const EdgeInsets.only(top: RxSpace.s),
+        child: RxSection(
           children: [
-            GlassContainer(
-              variant: GlassVariant.intense,
-              padding: const EdgeInsets.all(12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: TextField(
-                      controller: _username,
-                      style: const TextStyle(color: AppTheme.textPrimary),
-                      cursorColor: AppTheme.accent,
-                      decoration: const InputDecoration(
-                        hintText: 'Add by username',
-                        hintStyle: TextStyle(color: AppTheme.textSecondary),
-                        border: InputBorder.none,
-                      ),
-                    ),
-                  ),
-                  ElevatedButton(
-                    onPressed: _sending ? null : _sendRequest,
-                    child: const Text('ADD'),
-                  ),
-                ],
-              ),
+            RxTile(
+              title: 'Location Sharing',
+              icon: CupertinoIcons.location_fill,
+              iconColor: rx.success,
+              detail: sharingDetail,
+              onTap: () => context.push('/friends/sharing'),
             ),
-            if (_message != null) ...[
-              const SizedBox(height: 8),
-              Text(_message!, style: theme.textTheme.bodyMedium),
-            ],
-            const SizedBox(height: 24),
-            Text('Requests', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 12),
-            requestsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Text('$e'),
-              data: (req) {
-                if (req.incoming.isEmpty && req.outgoing.isEmpty) {
-                  return Text('No pending requests',
-                      style: theme.textTheme.bodyMedium);
-                }
-                return Column(
-                  children: [
-                    ...req.incoming.map((f) => _requestTile(
-                          title: f.requester?.displayName ??
-                              f.requester?.username ??
-                              'Driver',
-                          subtitle: 'wants to connect',
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              IconButton(
-                                icon: const Icon(Icons.check, color: Colors.green),
-                                onPressed: () async {
-                                  await ref
-                                      .read(friendsRepositoryProvider)
-                                      .acceptRequest(f.id);
-                                  ref.invalidate(friendsListProvider);
-                                  ref.invalidate(friendRequestsProvider);
-                                },
-                              ),
-                              IconButton(
-                                icon: const Icon(Icons.close, color: AppTheme.accent),
-                                onPressed: () async {
-                                  await ref
-                                      .read(friendsRepositoryProvider)
-                                      .declineRequest(f.id);
-                                  ref.invalidate(friendRequestsProvider);
-                                },
-                              ),
-                            ],
-                          ),
-                        )),
-                    ...req.outgoing.map((f) => _requestTile(
-                          title: f.addressee?.displayName ??
-                              f.addressee?.username ??
-                              'Driver',
-                          subtitle: 'outgoing',
-                          trailing: const Text('Pending',
-                              style: TextStyle(color: AppTheme.textSecondary)),
-                        )),
-                  ],
-                );
-              },
-            ),
-            const SizedBox(height: 24),
-            Text('Your friends', style: theme.textTheme.titleLarge),
-            const SizedBox(height: 12),
-            friendsAsync.when(
-              loading: () => const Center(child: CircularProgressIndicator()),
-              error: (e, _) => Text('$e'),
-              data: (friends) {
-                if (friends.isEmpty) {
-                  return Text('No friends yet — add drivers by username.',
-                      style: theme.textTheme.bodyMedium);
-                }
-                return Column(
-                  children: friends
-                      .map(
-                        (f) => Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: GlassContainer(
-                            variant: GlassVariant.card,
-                            padding: const EdgeInsets.all(16),
-                            borderRadius: 16,
-                            child: Row(
-                              children: [
-                                CircleAvatar(
-                                  backgroundColor: AppTheme.surface,
-                                  child: Text(f.displayName.isNotEmpty
-                                      ? f.displayName[0].toUpperCase()
-                                      : '?'),
-                                ),
-                                const SizedBox(width: 16),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(f.displayName,
-                                          style: const TextStyle(
-                                              color: AppTheme.textPrimary)),
-                                      Text('@${f.username}',
-                                          style: theme.textTheme.bodyMedium
-                                              ?.copyWith(fontSize: 13)),
-                                    ],
-                                  ),
-                                ),
-                                IconButton(
-                                  icon: const Icon(Icons.person_remove_outlined,
-                                      color: AppTheme.textSecondary),
-                                  onPressed: () async {
-                                    await ref
-                                        .read(friendsRepositoryProvider)
-                                        .unfriend(f.id);
-                                    ref.invalidate(friendsListProvider);
-                                  },
-                                ),
-                              ],
-                            ),
-                          ),
-                        ),
-                      )
-                      .toList(),
-                );
-              },
+            RxTile(
+              title: "Friends' Map",
+              icon: CupertinoIcons.map_fill,
+              iconColor: rx.info,
+              detail: sharingWithMe == 0 ? null : '$sharingWithMe live',
+              onTap: () => context.push('/friends/map'),
             ),
           ],
         ),
       ),
+    ));
+
+    // ── Requests ─────────────────────────────────────────────────────────
+    final requests = requestsAsync.valueOrNull;
+    if (requests != null) {
+      final incoming =
+          requests.incoming.where((f) => !_hiddenRequests.contains(f.id));
+      final outgoing =
+          requests.outgoing.where((f) => !_hiddenRequests.contains(f.id));
+      final rows = <Widget>[
+        for (final f in incoming)
+          _RequestRow(
+            friendship: f,
+            subtitle: 'Wants to be friends',
+            actions: [
+              _SmallButton(
+                label: 'Accept',
+                filled: true,
+                onPressed: () => _accept(f),
+              ),
+              const SizedBox(width: RxSpace.s),
+              _SmallButton(label: 'Decline', onPressed: () => _decline(f)),
+            ],
+          ),
+        for (final f in outgoing)
+          _RequestRow(
+            friendship: f,
+            subtitle: 'Request sent',
+            actions: [
+              _SmallButton(label: 'Cancel', onPressed: () => _cancel(f)),
+            ],
+          ),
+      ];
+      if (rows.isNotEmpty) {
+        slivers.add(SliverToBoxAdapter(
+          child: RxSection(header: 'Requests', children: rows),
+        ));
+      }
+    }
+
+    // ── Friends ──────────────────────────────────────────────────────────
+    slivers.add(friendsAsync.when(
+      loading: () => const RxSliverLoading(),
+      error: (e, _) => RxSliverCenter(
+        child: RxErrorState(error: e, onRetry: _refresh),
+      ),
+      data: (all) {
+        final friends =
+            all.where((f) => !_hiddenFriends.contains(f.id)).toList();
+        if (friends.isEmpty) {
+          return RxSliverCenter(
+            child: RxEmptyState(
+              icon: CupertinoIcons.person_2,
+              title: 'No friends yet',
+              message:
+                  'Add drivers you know to share your location and drive together.',
+              actionLabel: 'Add Friends',
+              onAction: () => context.push('/friends/add'),
+            ),
+          );
+        }
+        return SliverToBoxAdapter(
+          child: RxSection(
+            header: 'Friends (${friends.length})',
+            children: [
+              for (final f in friends)
+                GestureDetector(
+                  onLongPress: () => _friendMenu(f),
+                  child: RxTile(
+                    leading:
+                        RxAvatar(name: f.displayName, avatarPath: f.avatarPath),
+                    title: f.displayName,
+                    subtitle: '@${f.username}',
+                    trailing: Semantics(
+                      button: true,
+                      label: 'More options for ${f.displayName}',
+                      child: CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        minSize: RxSpace.minTouch,
+                        onPressed: () => _friendMenu(f),
+                        child: Icon(CupertinoIcons.ellipsis,
+                            color: rx.secondaryLabel, size: 20),
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        );
+      },
+    ));
+
+    return RxLargeTitlePage(
+      title: 'Friends',
+      trailing: RxNavIconButton(
+        icon: CupertinoIcons.person_badge_plus,
+        semanticLabel: 'Add friends',
+        onPressed: () => context.push('/friends/add'),
+      ),
+      onRefresh: _refresh,
+      slivers: slivers,
     );
   }
+}
 
-  Widget _requestTile({
-    required String title,
-    required String subtitle,
-    required Widget trailing,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 12),
-      child: GlassContainer(
-        variant: GlassVariant.card,
-        padding: const EdgeInsets.all(16),
-        borderRadius: 16,
-        child: Row(
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title,
-                      style: const TextStyle(color: AppTheme.textPrimary)),
-                  Text(subtitle,
-                      style: const TextStyle(
-                          color: AppTheme.textSecondary, fontSize: 13)),
-                ],
-              ),
-            ),
-            trailing,
-          ],
+class _RequestRow extends StatelessWidget {
+  const _RequestRow({
+    required this.friendship,
+    required this.subtitle,
+    required this.actions,
+  });
+
+  final FriendshipDto friendship;
+  final String subtitle;
+  final List<Widget> actions;
+
+  @override
+  Widget build(BuildContext context) {
+    final user = friendship.user;
+    final name = user?.displayName ?? 'Driver';
+    return RxTile(
+      leading: RxAvatar(name: name, avatarPath: user?.avatarPath),
+      title: name,
+      subtitle: user == null ? subtitle : '@${user.username} · $subtitle',
+      trailing: Row(mainAxisSize: MainAxisSize.min, children: actions),
+      chevron: false,
+    );
+  }
+}
+
+/// Compact capsule button used inside list rows.
+class _SmallButton extends StatelessWidget {
+  const _SmallButton({
+    required this.label,
+    required this.onPressed,
+    this.filled = false,
+  });
+
+  final String label;
+  final VoidCallback onPressed;
+  final bool filled;
+
+  @override
+  Widget build(BuildContext context) {
+    final rx = context.rx;
+    return Semantics(
+      button: true,
+      label: label,
+      excludeSemantics: true,
+      child: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        minSize: 32,
+        color: filled ? rx.accent : rx.fill,
+        borderRadius: BorderRadius.circular(100),
+        onPressed: onPressed,
+        child: Text(
+          label,
+          style: rx.subheadline.copyWith(
+            color: filled ? rx.onAccent : rx.label,
+            fontWeight: FontWeight.w600,
+          ),
         ),
       ),
     );

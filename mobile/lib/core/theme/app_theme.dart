@@ -1,188 +1,178 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:google_fonts/google_fonts.dart';
 
+/// RideX design tokens, modelled on Apple's Human Interface Guidelines.
+///
+/// * Semantic, brightness-aware colours (label / secondaryLabel / grouped
+///   backgrounds) instead of hard-coded hex values.
+/// * HIG text styles (Large Title 34 → Caption 2 11).
+/// * 8pt spacing grid, 44pt minimum touch targets, 12pt card radius.
+///
+/// Read resolved values from widgets with `context.rx`.
 class AppTheme {
   AppTheme._();
 
-  // Red / black / white glass palette
-  static const Color background = Color(0xFF0A0A0B);
-  static const Color surface = Color(0xFF141416);
-  static const Color glass = Color(0x14FFFFFF); // ~8% white
-  static const Color glassIntense = Color(0x1FFFFFFF); // ~12%
-  static const Color glassBorder = Color(0x2EFFFFFF); // ~18%
-  static const Color accent = Color(0xFFE10600);
-  static const Color accentSoft = Color(0x33E10600);
-  static const Color textPrimary = Color(0xFFFFFFFF);
-  static const Color textSecondary = Color(0xFFA1A1AA);
-  static const Color danger = Color(0xFFFF453A);
+  /// Brand accent (#E53935), brightened slightly in dark mode for contrast.
+  static const CupertinoDynamicColor accent =
+      CupertinoDynamicColor.withBrightness(
+    color: Color(0xFFE53935),
+    darkColor: Color(0xFFFF453A),
+  );
 
-  static BoxDecoration get scaffoldGradient => const BoxDecoration(
-        gradient: RadialGradient(
-          center: Alignment(-0.6, -0.85),
-          radius: 1.15,
-          colors: [
-            Color(0x55220000),
-            background,
-          ],
-          stops: [0.0, 0.65],
-        ),
-      );
+  static ThemeData light() => _build(Brightness.light);
+  static ThemeData dark() => _build(Brightness.dark);
 
-  static ThemeData get darkTheme {
-    final base = ThemeData(
-      useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: background,
+  static ThemeData _build(Brightness brightness) {
+    final isDark = brightness == Brightness.dark;
+    final palette = RxPalette.of(brightness);
+    final scheme = ColorScheme.fromSeed(
+      seedColor: const Color(0xFFE53935),
+      brightness: brightness,
+    ).copyWith(
+      primary: palette.accent,
+      surface: palette.card,
+      error: palette.destructive,
     );
 
-    final display = GoogleFonts.spaceGroteskTextTheme(base.textTheme);
-    final body = GoogleFonts.interTextTheme(base.textTheme);
-
-    return base.copyWith(
-      scaffoldBackgroundColor: background,
-      colorScheme: const ColorScheme.dark(
-        primary: accent,
-        onPrimary: textPrimary,
-        secondary: accent,
-        onSecondary: textPrimary,
-        surface: surface,
-        onSurface: textPrimary,
-        error: danger,
-        onError: textPrimary,
-      ),
+    return ThemeData(
+      useMaterial3: true,
+      brightness: brightness,
+      // iOS platform semantics everywhere: Cupertino page transitions with
+      // edge swipe-back, bouncing scroll physics, iOS text selection.
+      platform: TargetPlatform.iOS,
+      colorScheme: scheme,
+      scaffoldBackgroundColor: palette.background,
+      canvasColor: palette.background,
+      splashFactory: NoSplash.splashFactory,
+      highlightColor: Colors.transparent,
+      dividerColor: palette.separator,
       appBarTheme: AppBarTheme(
-        backgroundColor: Colors.transparent,
+        backgroundColor: palette.background,
+        surfaceTintColor: Colors.transparent,
         elevation: 0,
         scrolledUnderElevation: 0,
-        centerTitle: false,
-        systemOverlayStyle: SystemUiOverlayStyle.light,
-        titleTextStyle: GoogleFonts.spaceGrotesk(
-          fontSize: 22,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        iconTheme: const IconThemeData(color: textPrimary),
+        systemOverlayStyle:
+            isDark ? SystemUiOverlayStyle.light : SystemUiOverlayStyle.dark,
       ),
-      textTheme: body.copyWith(
-        displayLarge: display.displayLarge?.copyWith(
-          fontSize: 56,
-          fontWeight: FontWeight.w700,
-          color: textPrimary,
-          letterSpacing: -1.5,
-        ),
-        displayMedium: display.displayMedium?.copyWith(
-          fontSize: 40,
-          fontWeight: FontWeight.w700,
-          color: textPrimary,
-          letterSpacing: -1,
-        ),
-        displaySmall: display.displaySmall?.copyWith(
-          fontSize: 32,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        headlineMedium: display.headlineMedium?.copyWith(
-          fontSize: 26,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        titleLarge: display.titleLarge?.copyWith(
-          fontSize: 22,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        titleMedium: display.titleMedium?.copyWith(
-          fontSize: 16,
-          fontWeight: FontWeight.w600,
-          color: textPrimary,
-        ),
-        bodyLarge: body.bodyLarge?.copyWith(
-          fontSize: 16,
-          color: textPrimary,
-          height: 1.4,
-        ),
-        bodyMedium: body.bodyMedium?.copyWith(
-          fontSize: 14,
-          color: textSecondary,
-          height: 1.45,
-        ),
-        bodySmall: body.bodySmall?.copyWith(
-          fontSize: 12,
-          color: textSecondary,
-        ),
-        labelLarge: body.labelLarge?.copyWith(
-          fontSize: 14,
-          fontWeight: FontWeight.w600,
-          letterSpacing: 1.1,
-          color: textPrimary,
+      pageTransitionsTheme: const PageTransitionsTheme(builders: {
+        TargetPlatform.android: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+      }),
+      cupertinoOverrideTheme: CupertinoThemeData(
+        brightness: brightness,
+        primaryColor: palette.accent,
+        scaffoldBackgroundColor: palette.background,
+        barBackgroundColor: palette.bar,
+        textTheme: CupertinoTextThemeData(
+          primaryColor: palette.accent,
+          textStyle: palette.body,
+          navLargeTitleTextStyle: palette.largeTitle,
+          navTitleTextStyle: palette.headline,
+          actionTextStyle: palette.body.copyWith(color: palette.accent),
         ),
       ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: accent,
-          foregroundColor: textPrimary,
-          disabledBackgroundColor: accent.withOpacity(0.35),
-          disabledForegroundColor: textPrimary.withOpacity(0.7),
-          elevation: 0,
-          shadowColor: accent.withOpacity(0.45),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 28),
-          textStyle: GoogleFonts.spaceGrotesk(
-            fontSize: 15,
-            fontWeight: FontWeight.w700,
-            letterSpacing: 1.2,
-          ),
-        ),
-      ),
-      outlinedButtonTheme: OutlinedButtonThemeData(
-        style: OutlinedButton.styleFrom(
-          foregroundColor: textPrimary,
-          side: const BorderSide(color: glassBorder, width: 1.2),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 28),
-        ),
-      ),
-      textButtonTheme: TextButtonThemeData(
-        style: TextButton.styleFrom(
-          foregroundColor: textSecondary,
-          textStyle: GoogleFonts.inter(fontWeight: FontWeight.w500),
-        ),
-      ),
-      inputDecorationTheme: InputDecorationTheme(
-        filled: false,
-        border: InputBorder.none,
-        enabledBorder: InputBorder.none,
-        focusedBorder: InputBorder.none,
-        labelStyle: const TextStyle(color: textSecondary),
-        hintStyle: TextStyle(color: textSecondary.withOpacity(0.7)),
-      ),
-      chipTheme: ChipThemeData(
-        backgroundColor: glass,
-        selectedColor: accentSoft,
-        side: const BorderSide(color: glassBorder),
-        labelStyle: const TextStyle(color: textPrimary),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
-      snackBarTheme: SnackBarThemeData(
-        backgroundColor: surface,
-        contentTextStyle: const TextStyle(color: textPrimary),
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      ),
-      dividerTheme: const DividerThemeData(
-        color: Color(0x1FFFFFFF),
-        thickness: 1,
-        space: 1,
-      ),
-      floatingActionButtonTheme: const FloatingActionButtonThemeData(
-        backgroundColor: accent,
-        foregroundColor: textPrimary,
-        elevation: 0,
-      ),
-      progressIndicatorTheme: const ProgressIndicatorThemeData(color: accent),
-      iconTheme: const IconThemeData(color: textPrimary),
     );
   }
+}
+
+/// Resolved colour + type tokens for one brightness.
+class RxPalette {
+  RxPalette._(this.brightness);
+
+  factory RxPalette.of(Brightness b) =>
+      b == Brightness.dark ? _dark : _light;
+
+  static final RxPalette _light = RxPalette._(Brightness.light);
+  static final RxPalette _dark = RxPalette._(Brightness.dark);
+
+  final Brightness brightness;
+  bool get isDark => brightness == Brightness.dark;
+
+  Color _pick(int light, int dark) => Color(isDark ? dark : light);
+
+  // ── Colours (iOS system values) ──────────────────────────────────────────
+  Color get accent => _pick(0xFFE53935, 0xFFFF453A);
+  Color get accentTint => accent.withOpacity(isDark ? 0.22 : 0.12);
+  Color get onAccent => const Color(0xFFFFFFFF);
+
+  Color get background => _pick(0xFFF2F2F7, 0xFF000000);
+  Color get card => _pick(0xFFFFFFFF, 0xFF1C1C1E);
+  Color get cardElevated => _pick(0xFFFFFFFF, 0xFF2C2C2E);
+  Color get bar => _pick(0xF0F9F9F9, 0xF01D1D1D);
+  Color get fill => _pick(0x1F787880, 0x3D787880);
+  Color get fillSecondary => _pick(0x14787880, 0x29787880);
+
+  Color get label => _pick(0xFF000000, 0xFFFFFFFF);
+  Color get secondaryLabel => _pick(0x993C3C43, 0x99EBEBF5);
+  Color get tertiaryLabel => _pick(0x4D3C3C43, 0x4DEBEBF5);
+  Color get separator => _pick(0x4A3C3C43, 0x99545458);
+
+  Color get destructive => _pick(0xFFFF3B30, 0xFFFF453A);
+  Color get success => _pick(0xFF34C759, 0xFF30D158);
+  Color get warning => _pick(0xFFFF9500, 0xFFFF9F0A);
+  Color get info => _pick(0xFF007AFF, 0xFF0A84FF);
+  Color get indigo => _pick(0xFF5856D6, 0xFF5E5CE6);
+  Color get teal => _pick(0xFF30B0C7, 0xFF40C8E0);
+  Color get gray => _pick(0xFF8E8E93, 0xFF8E8E93);
+
+  // ── Typography (HIG text styles) ─────────────────────────────────────────
+  TextStyle _t(double size, FontWeight w, {double? spacing, Color? color}) =>
+      TextStyle(
+        inherit: false,
+        fontSize: size,
+        fontWeight: w,
+        letterSpacing: spacing,
+        height: 1.25,
+        color: color ?? label,
+        decoration: TextDecoration.none,
+        textBaseline: TextBaseline.alphabetic,
+      );
+
+  TextStyle get largeTitle => _t(34, FontWeight.w700, spacing: 0.37);
+  TextStyle get title1 => _t(28, FontWeight.w700, spacing: 0.36);
+  TextStyle get title2 => _t(22, FontWeight.w700, spacing: 0.35);
+  TextStyle get title3 => _t(20, FontWeight.w600, spacing: 0.38);
+  TextStyle get headline => _t(17, FontWeight.w600, spacing: -0.41);
+  TextStyle get body => _t(17, FontWeight.w400, spacing: -0.41);
+  TextStyle get callout => _t(16, FontWeight.w400, spacing: -0.32);
+  TextStyle get subheadline =>
+      _t(15, FontWeight.w400, spacing: -0.24, color: secondaryLabel);
+  TextStyle get footnote =>
+      _t(13, FontWeight.w400, spacing: -0.08, color: secondaryLabel);
+  TextStyle get caption =>
+      _t(12, FontWeight.w400, color: secondaryLabel);
+  TextStyle get caption2 =>
+      _t(11, FontWeight.w400, spacing: 0.07, color: secondaryLabel);
+
+  /// Tabular numerals for live gauges.
+  TextStyle numeric(double size, {FontWeight weight = FontWeight.w600}) =>
+      _t(size, weight, spacing: -0.5).copyWith(
+        fontFeatures: const [FontFeature.tabularFigures()],
+      );
+}
+
+/// Spacing scale (8pt grid).
+class RxSpace {
+  RxSpace._();
+  static const double xs = 4;
+  static const double s = 8;
+  static const double m = 16;
+  static const double l = 24;
+  static const double xl = 32;
+  static const double xxl = 48;
+
+  /// Inset grouped list horizontal margin.
+  static const double inset = 20;
+  static const double radius = 12;
+  static const double radiusLarge = 16;
+  static const double minTouch = 44;
+}
+
+extension RxContext on BuildContext {
+  RxPalette get rx => RxPalette.of(
+        CupertinoTheme.maybeBrightnessOf(this) ??
+            MediaQuery.maybePlatformBrightnessOf(this) ??
+            Brightness.light,
+      );
 }

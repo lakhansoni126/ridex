@@ -1,191 +1,121 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 
-import '../../../core/theme/app_theme.dart';
 import '../../../database/models.dart';
 import '../../../main.dart';
-import '../../../services/export_service.dart';
-import '../../../shared/widgets/glass.dart';
+import '../../../shared/ui/ui.dart';
+import '../../ride/presentation/home_dashboard_screen.dart';
 
-final historyProvider = FutureProvider.autoDispose<List<Ride>>((ref) async {
-  return await dbService.getAllRides();
-});
+final historyProvider = FutureProvider.autoDispose<List<Ride>>(
+  (ref) => dbService.getRidesNewestFirst(),
+);
 
+/// All locally recorded drives, grouped by month.
 class HistoryScreen extends ConsumerWidget {
   const HistoryScreen({super.key});
 
-  String _formatDuration(double seconds) {
-    final s = seconds.toInt();
-    final h = s ~/ 3600;
-    final m = (s % 3600) ~/ 60;
-    final sec = s % 60;
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
+  Future<void> _delete(BuildContext context, WidgetRef ref, Ride ride) async {
+    final ok = await confirmRx(
+      context,
+      title: 'Delete This Drive?',
+      message: 'The route and stats will be removed from this phone.',
+      confirmLabel: 'Delete',
+    );
+    if (!ok) return;
+    try {
+      await dbService.deleteRide(ride.id);
+      ref.invalidate(historyProvider);
+      ref.invalidate(driveStatsProvider);
+    } catch (e) {
+      if (context.mounted) showRxError(context, e);
+    }
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final ridesAsync = ref.watch(historyProvider);
+    final rx = context.rx;
+    final rides = ref.watch(historyProvider);
 
-    return GlassScaffold(
-      appBar: const GlassAppBar(title: 'Ride History', centerTitle: true),
-      body: ridesAsync.when(
-        loading: () => const Center(child: CircularProgressIndicator()),
-        error: (err, stack) => Center(child: Text('Error: $err')),
-        data: (rides) {
-          if (rides.isEmpty) {
-            return Center(
-              child: Column(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(Icons.directions_car,
-                      size: 64,
-                      color: AppTheme.textPrimary.withOpacity(0.2)),
-                  const SizedBox(height: 16),
-                  const Text('No rides recorded yet.',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary, fontSize: 16)),
-                  const SizedBox(height: 8),
-                  Text('Start a ride to see your history here.',
-                      style: TextStyle(
-                          color: AppTheme.textSecondary.withOpacity(0.7),
-                          fontSize: 13)),
-                ],
-              ),
-            );
-          }
-          rides.sort((a, b) => b.startTime.compareTo(a.startTime));
-
-          return ListView.builder(
-            padding: const EdgeInsets.all(16),
-            itemCount: rides.length,
-            itemBuilder: (context, index) {
-              final ride = rides[index];
-              final pointCount = ride.points.length;
-              return Padding(
-                padding: const EdgeInsets.only(bottom: 16.0),
-                child: GlassContainer(
-                  variant: GlassVariant.card,
-                  padding: const EdgeInsets.all(20),
-                  onTap: () => context.push('/ride-detail/${ride.id}'),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+    return RxLargeTitlePage(
+      title: 'All Drives',
+      previousPageTitle: 'Drive',
+      onRefresh: () async => ref.invalidate(historyProvider),
+      slivers: [
+        ...rides.when(
+          loading: () => const [RxSliverLoading()],
+          error: (e, _) => [
+            RxSliverCenter(
+              child: RxErrorState(
+                  error: e, onRetry: () => ref.invalidate(historyProvider)),
+            ),
+          ],
+          data: (list) {
+            if (list.isEmpty) {
+              return [
+                RxSliverCenter(
+                  child: RxEmptyState(
+                    icon: CupertinoIcons.car_detailed,
+                    title: 'No Drives Yet',
+                    message: 'Recorded drives appear here.',
+                    actionLabel: 'Start a Drive',
+                    onAction: () => context.push('/record'),
+                  ),
+                ),
+              ];
+            }
+            final groups = <String, List<Ride>>{};
+            for (final r in list) {
+              groups
+                  .putIfAbsent(DateFormat('MMMM yyyy').format(r.startTime),
+                      () => [])
+                  .add(r);
+            }
+            return [
+              const SliverToBoxAdapter(child: SizedBox(height: RxSpace.s)),
+              for (final entry in groups.entries)
+                SliverToBoxAdapter(
+                  child: RxSection(
+                    header:
+                        '${entry.key} · ${entry.value.fold<double>(0, (a, r) => a + r.distance).toStringAsFixed(0)} km',
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                DateFormat('MMM dd, yyyy')
-                                    .format(ride.startTime),
-                                style: theme.textTheme.titleLarge
-                                    ?.copyWith(fontSize: 18),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                DateFormat('hh:mm a').format(ride.startTime),
-                                style: theme.textTheme.bodyMedium,
-                              ),
-                            ],
+                      for (final r in entry.value)
+                        Dismissible(
+                          key: ValueKey(r.id),
+                          direction: DismissDirection.endToStart,
+                          confirmDismiss: (_) async {
+                            await _delete(context, ref, r);
+                            return false;
+                          },
+                          background: Container(
+                            color: rx.destructive,
+                            alignment: Alignment.centerRight,
+                            padding: const EdgeInsets.only(right: 20),
+                            child: const Icon(CupertinoIcons.trash,
+                                color: Color(0xFFFFFFFF)),
                           ),
-                          Row(
-                            children: [
-                              Container(
-                                padding: const EdgeInsets.symmetric(
-                                    horizontal: 8, vertical: 4),
-                                decoration: BoxDecoration(
-                                  color: pointCount > 0
-                                      ? Colors.greenAccent
-                                          .withOpacity(0.15)
-                                      : AppTheme.accentSoft,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  '$pointCount pts',
-                                  style: TextStyle(
-                                    color: pointCount > 0
-                                        ? Colors.greenAccent
-                                        : AppTheme.accent,
-                                    fontSize: 11,
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              PopupMenuButton<String>(
-                                icon: const Icon(Icons.more_vert,
-                                    color: AppTheme.textSecondary, size: 20),
-                                onSelected: (value) async {
-                                  if (value == 'export') {
-                                    await ExportService.exportRideToJson(ride);
-                                  }
-                                },
-                                itemBuilder: (context) => [
-                                  const PopupMenuItem(
-                                    value: 'export',
-                                    child: Text('Export JSON'),
-                                  ),
-                                ],
-                              ),
-                            ],
+                          child: RxTile(
+                            title: DateFormat('EEE d · h:mm a')
+                                .format(r.startTime),
+                            subtitle:
+                                '${formatDuration(r.durationSeconds.toInt())} · ${r.avgSpeed.toStringAsFixed(0)} km/h avg · top ${r.topSpeed.toStringAsFixed(0)}',
+                            detail: '${r.distance.toStringAsFixed(1)} km',
+                            icon: CupertinoIcons.car_detailed,
+                            iconColor: rx.accent,
+                            onTap: () => context.push('/drive/ride/${r.id}'),
                           ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          _statChip(theme, Icons.straighten,
-                              '${ride.distance.toStringAsFixed(1)} km'),
-                          _statChip(theme, Icons.timer,
-                              _formatDuration(ride.durationSeconds)),
-                          _statChip(theme, Icons.speed,
-                              '${ride.avgSpeed.toStringAsFixed(0)} avg'),
-                          _statChip(theme, Icons.flash_on,
-                              '${ride.topSpeed.toStringAsFixed(0)} top'),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [
-                          Text('Tap to view route',
-                              style: TextStyle(
-                                  color: AppTheme.accent.withOpacity(0.8),
-                                  fontSize: 11,
-                                  letterSpacing: 0.5)),
-                          const SizedBox(width: 4),
-                          Icon(Icons.chevron_right,
-                              color: AppTheme.accent.withOpacity(0.8),
-                              size: 16),
-                        ],
-                      ),
+                        ),
                     ],
                   ),
                 ),
-              );
-            },
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _statChip(ThemeData theme, IconData icon, String text) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(icon, size: 14, color: AppTheme.accent),
-        const SizedBox(width: 4),
-        Text(text,
-            style: const TextStyle(
-                color: AppTheme.textSecondary,
-                fontSize: 12,
-                fontWeight: FontWeight.w600)),
+              RxSliverPadding(
+                child: Text('Swipe left on a drive to delete it.',
+                    style: rx.footnote, textAlign: TextAlign.center),
+              ),
+            ];
+          },
+        ),
       ],
     );
   }

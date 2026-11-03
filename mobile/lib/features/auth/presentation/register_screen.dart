@@ -1,10 +1,11 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
 
-import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/glass.dart';
+import '../../../shared/ui/ui.dart';
 import '../application/auth_notifier.dart';
+import 'auth_validators.dart';
+import 'login_screen.dart';
 
 class RegisterScreen extends ConsumerStatefulWidget {
   const RegisterScreen({super.key});
@@ -14,104 +15,122 @@ class RegisterScreen extends ConsumerStatefulWidget {
 }
 
 class _RegisterScreenState extends ConsumerState<RegisterScreen> {
-  final _email = TextEditingController();
-  final _username = TextEditingController();
-  final _displayName = TextEditingController();
-  final _password = TextEditingController();
   final _formKey = GlobalKey<FormState>();
+  final _displayName = TextEditingController();
+  final _username = TextEditingController();
+  final _email = TextEditingController();
+  final _password = TextEditingController();
+  bool _showPassword = false;
 
   @override
   void dispose() {
-    _email.dispose();
-    _username.dispose();
     _displayName.dispose();
+    _username.dispose();
+    _email.dispose();
     _password.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate()) return;
-    final ok = await ref.read(authNotifierProvider.notifier).register(
-          email: _email.text.trim(),
-          username: _username.text.trim(),
+    FocusScope.of(context).unfocus();
+    if (!(_formKey.currentState?.validate() ?? false)) {
+      HapticFeedback.heavyImpact();
+      return;
+    }
+    TextInput.finishAutofillContext();
+    await ref.read(authNotifierProvider.notifier).register(
+          email: _email.text,
+          username: _username.text,
           password: _password.text,
-          displayName: _displayName.text.trim(),
+          displayName: _displayName.text,
         );
-    if (ok && mounted) context.go('/permissions');
+    // Router redirects into the app on success.
   }
 
   @override
   Widget build(BuildContext context) {
     final auth = ref.watch(authNotifierProvider);
-    final theme = Theme.of(context);
 
-    return GlassScaffold(
-      appBar: const GlassAppBar(title: 'Join RideX'),
-      padding: const EdgeInsets.all(24),
-      body: SingleChildScrollView(
-        child: Form(
-          key: _formKey,
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Create your profile and hit the road with the community.',
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 24),
-              GlassFormPanel(
-                children: [
-                  GlassFormField(
-                    controller: _displayName,
-                    label: 'Display name',
-                    validator: (v) =>
-                        (v == null || v.isEmpty) ? 'Required' : null,
-                  ),
-                  GlassFormField(
-                    controller: _username,
-                    label: 'Username',
-                    validator: (v) {
-                      if (v == null || v.length < 3) return 'Min 3 chars';
-                      if (!RegExp(r'^[a-zA-Z0-9_]+$').hasMatch(v)) {
-                        return 'Letters, numbers, underscore';
-                      }
-                      return null;
-                    },
-                  ),
-                  GlassFormField(
-                    controller: _email,
-                    label: 'Email',
-                    keyboardType: TextInputType.emailAddress,
-                    validator: (v) =>
-                        (v == null || !v.contains('@')) ? 'Enter email' : null,
-                  ),
-                  GlassFormField(
-                    controller: _password,
-                    label: 'Password',
-                    obscureText: true,
-                    validator: (v) =>
-                        (v == null || v.length < 8) ? 'Min 8 characters' : null,
-                  ),
-                ],
-              ),
-              if (auth.error != null) ...[
-                const SizedBox(height: 16),
-                Text(auth.error!, style: const TextStyle(color: AppTheme.accent)),
-              ],
-              const SizedBox(height: 32),
-              GlassButton(
-                label: 'CREATE ACCOUNT',
-                busy: auth.busy,
-                onPressed: auth.busy ? null : _submit,
-              ),
-              TextButton(
-                onPressed: () => context.go('/login'),
-                child: Text(
-                  'Already have an account? Sign in',
-                  style: theme.textTheme.bodyMedium,
+    return RxPage(
+      title: 'Create Account',
+      previousPageTitle: 'Sign In',
+      child: SingleChildScrollView(
+        keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+        padding: const EdgeInsets.symmetric(vertical: RxSpace.l),
+        child: AutofillGroup(
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const AuthBrand(
+                  subtitle: 'Join drivers near you. It takes a minute.',
                 ),
-              ),
-            ],
+                const SizedBox(height: RxSpace.l),
+                RxFormSection(
+                  header: 'Profile',
+                  children: [
+                    RxFormField(
+                      controller: _displayName,
+                      placeholder: 'Your name',
+                      textCapitalization: TextCapitalization.words,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.name],
+                      validator: validateDisplayName,
+                      maxLength: 60,
+                    ),
+                    RxFormField(
+                      controller: _username,
+                      placeholder: 'Username',
+                      autocorrect: false,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.newUsername],
+                      validator: validateUsername,
+                      maxLength: 32,
+                    ),
+                  ],
+                  footer: 'Friends find you by your username.',
+                ),
+                RxFormSection(
+                  header: 'Account',
+                  children: [
+                    RxFormField(
+                      controller: _email,
+                      placeholder: 'Email',
+                      keyboardType: TextInputType.emailAddress,
+                      autocorrect: false,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const [AutofillHints.email],
+                      validator: validateEmail,
+                    ),
+                    RxFormField(
+                      controller: _password,
+                      placeholder: 'Password (8+ characters)',
+                      obscureText: !_showPassword,
+                      textInputAction: TextInputAction.done,
+                      autofillHints: const [AutofillHints.newPassword],
+                      onFieldSubmitted: (_) => _submit(),
+                      validator: validatePassword,
+                      suffix: AuthRevealButton(
+                        visible: _showPassword,
+                        onTap: () =>
+                            setState(() => _showPassword = !_showPassword),
+                      ),
+                    ),
+                  ],
+                ),
+                if (auth.error != null) AuthInlineError(message: auth.error!),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(
+                      RxSpace.inset, RxSpace.m, RxSpace.inset, 0),
+                  child: RxButton(
+                    label: 'Create Account',
+                    busy: auth.busy,
+                    onPressed: _submit,
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
       ),

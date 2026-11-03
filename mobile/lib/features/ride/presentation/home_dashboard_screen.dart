@@ -1,226 +1,326 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import 'package:intl/intl.dart';
 
-import '../../../core/theme/app_theme.dart';
+import '../../../database/models.dart';
 import '../../../main.dart';
-import '../../../shared/widgets/glass.dart';
+import '../../../shared/ui/ui.dart';
 import '../../auth/application/auth_notifier.dart';
+import '../../permissions/presentation/permission_education_screen.dart';
+import '../domain/ride_engine.dart';
 
-final homeStatsProvider =
-    FutureProvider.autoDispose<Map<String, dynamic>>((ref) async {
-  final count = await dbService.getRideCount();
-  final totalDist = await dbService.getTotalDistance();
-  final topSpeed = await dbService.getOverallTopSpeed();
-  return {
-    'count': count,
-    'totalDist': totalDist,
-    'topSpeed': topSpeed,
-  };
+class DriveStats {
+  const DriveStats({
+    required this.count,
+    required this.totalKm,
+    required this.topSpeed,
+    required this.recent,
+  });
+
+  final int count;
+  final double totalKm;
+  final double topSpeed;
+  final List<Ride> recent;
+}
+
+final driveStatsProvider = FutureProvider.autoDispose<DriveStats>((ref) async {
+  final results = await Future.wait([
+    dbService.getRideCount(),
+    dbService.getTotalDistance(),
+    dbService.getOverallTopSpeed(),
+    dbService.getRecentRides(limit: 3),
+  ]);
+  return DriveStats(
+    count: results[0] as int,
+    totalKm: results[1] as double,
+    topSpeed: results[2] as double,
+    recent: results[3] as List<Ride>,
+  );
 });
 
+/// "Drive" tab: start a solo drive, glance at stats, open recent drives.
 class HomeDashboardScreen extends ConsumerWidget {
   const HomeDashboardScreen({super.key});
 
+  String _greeting() {
+    final h = DateTime.now().hour;
+    if (h < 12) return 'Good morning';
+    if (h < 18) return 'Good afternoon';
+    return 'Good evening';
+  }
+
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final theme = Theme.of(context);
-    final statsAsync = ref.watch(homeStatsProvider);
+    final rx = context.rx;
     final user = ref.watch(authNotifierProvider).user;
+    final stats = ref.watch(driveStatsProvider);
+    final permission = ref.watch(locationPermissionProvider).valueOrNull;
+    final recording = ref.watch(rideEngineProvider.select((s) => s.isRecording));
+    final firstName = (user?.displayName ?? '').split(' ').first;
 
-    return GlassScaffold(
-      padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-      body: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              _GlassIconButton(
-                icon: Icons.directions_car,
-                tooltip: 'Garage',
-                onPressed: () => context.push('/garage'),
-              ),
-              Row(
+    return RxLargeTitlePage(
+      title: 'Drive',
+      trailing: RxNavIconButton(
+        icon: CupertinoIcons.map,
+        semanticLabel: 'Open map',
+        onPressed: () => context.push('/map'),
+      ),
+      onRefresh: () async {
+        ref.invalidate(driveStatsProvider);
+        ref.invalidate(locationPermissionProvider);
+        await ref.read(driveStatsProvider.future);
+      },
+      slivers: [
+        RxSliverPadding(
+          top: RxSpace.xs,
+          child: Text(
+            firstName.isEmpty
+                ? '${_greeting()}.'
+                : '${_greeting()}, $firstName.',
+            style: rx.subheadline,
+          ),
+        ),
+        if (permission != null && !permissionGranted(permission))
+          RxSliverPadding(
+            top: RxSpace.m,
+            child: RxCard(
+              onTap: () => context.push('/permissions'),
+              child: Row(
                 children: [
-                  _GlassIconButton(
-                    icon: Icons.map_outlined,
-                    onPressed: () => context.push('/map'),
+                  RxIconBadge(
+                      icon: CupertinoIcons.location_slash_fill,
+                      color: rx.warning),
+                  const SizedBox(width: RxSpace.m),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Location is off', style: rx.headline),
+                        Text('Turn it on to record drives.',
+                            style: rx.footnote),
+                      ],
+                    ),
                   ),
-                  const SizedBox(width: 10),
-                  _GlassIconButton(
-                    icon: Icons.history,
-                    onPressed: () => context.push('/history'),
-                  ),
-                  const SizedBox(width: 10),
-                  _GlassIconButton(
-                    icon: Icons.logout,
-                    tooltip: 'Sign out',
-                    onPressed: () =>
-                        ref.read(authNotifierProvider.notifier).logout(),
-                  ),
+                  Icon(CupertinoIcons.chevron_right,
+                      size: 16, color: rx.tertiaryLabel),
                 ],
+              ),
+            ),
+          ),
+        RxSliverPadding(
+          top: RxSpace.l,
+          child: _StartCard(
+            recording: recording,
+            onStart: () {
+              HapticFeedback.mediumImpact();
+              context.push('/record');
+            },
+          ),
+        ),
+        RxSliverPadding(
+          top: RxSpace.l,
+          bottom: RxSpace.s,
+          child: stats.when(
+            loading: () => const _StatsRow(count: '–', km: '–', top: '–'),
+            error: (_, __) => const _StatsRow(count: '0', km: '0', top: '0'),
+            data: (s) => _StatsRow(
+              count: '${s.count}',
+              km: s.totalKm.toStringAsFixed(s.totalKm < 100 ? 1 : 0),
+              top: s.topSpeed.toStringAsFixed(0),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: RxSpace.m),
+            child: stats.maybeWhen(
+              data: (s) => s.recent.isEmpty
+                  ? RxSection(
+                      header: 'Recent Drives',
+                      footer:
+                          'Your drives are saved on this phone. Tap Start to record your first one.',
+                      children: const [
+                        RxTile(
+                          title: 'No drives yet',
+                          icon: CupertinoIcons.car_detailed,
+                        ),
+                      ],
+                    )
+                  : RxSection(
+                      header: 'Recent Drives',
+                      children: [
+                        for (final r in s.recent) _RecentDriveTile(ride: r),
+                        RxTile(
+                          title: 'All Drives',
+                          icon: CupertinoIcons.clock_fill,
+                          iconColor: rx.indigo,
+                          detail: '${s.count}',
+                          onTap: () => context.push('/drive/history'),
+                        ),
+                      ],
+                    ),
+              orElse: () => const SizedBox.shrink(),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: RxSection(
+            header: 'Together',
+            children: [
+              RxTile(
+                title: 'Group Drives',
+                subtitle: 'Drive with friends and see everyone live',
+                icon: CupertinoIcons.flag_fill,
+                iconColor: rx.success,
+                onTap: () => context.go('/rides'),
+              ),
+              RxTile(
+                title: 'Share My Location',
+                subtitle: 'Let friends follow along',
+                icon: CupertinoIcons.location_fill,
+                iconColor: rx.info,
+                onTap: () => context.go('/friends/sharing'),
               ),
             ],
           ),
-          const SizedBox(height: 28),
-          Text(
-            'RideX',
-            style: theme.textTheme.displayMedium?.copyWith(
-              color: AppTheme.textPrimary,
-              fontWeight: FontWeight.w700,
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            user != null
-                ? 'Hey ${user.displayName} — ready for the road?'
-                : 'Ready for the road? Connect GPS and start your drive.',
-            style: theme.textTheme.bodyMedium,
-          ),
-          const SizedBox(height: 22),
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-              children: [
-                GlassNavChip(
-                  label: 'Discover',
-                  icon: Icons.explore_outlined,
-                  onTap: () => context.push('/rides'),
-                ),
-                GlassNavChip(
-                  label: 'Friends',
-                  icon: Icons.group_outlined,
-                  onTap: () => context.push('/friends'),
-                ),
-                GlassNavChip(
-                  label: 'Community',
-                  icon: Icons.forum_outlined,
-                  onTap: () => context.push('/community'),
-                ),
-                GlassNavChip(
-                  label: 'Share',
-                  icon: Icons.share_location,
-                  onTap: () => context.push('/sharing'),
-                ),
-                GlassNavChip(
-                  label: 'Garage',
-                  icon: Icons.directions_car_filled_outlined,
-                  onTap: () => context.push('/garage'),
-                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _StartCard extends StatelessWidget {
+  const _StartCard({required this.recording, required this.onStart});
+
+  final bool recording;
+  final VoidCallback onStart;
+
+  @override
+  Widget build(BuildContext context) {
+    final rx = context.rx;
+    return Semantics(
+      button: true,
+      label: recording ? 'Return to current drive' : 'Start a drive',
+      excludeSemantics: true,
+      child: RxPressable(
+        onTap: onStart,
+        child: Container(
+          height: 168,
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(RxSpace.radiusLarge + 4),
+            gradient: LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [
+                rx.accent,
+                Color.lerp(rx.accent, const Color(0xFF000000), 0.35)!,
               ],
             ),
+            boxShadow: [
+              BoxShadow(
+                color: rx.accent.withOpacity(0.35),
+                blurRadius: 24,
+                offset: const Offset(0, 10),
+              ),
+            ],
           ),
-          const Spacer(),
-          Center(
-            child: GlassContainer(
-              variant: GlassVariant.intense,
-              borderRadius: 120,
-              padding: const EdgeInsets.all(18),
-              child: InkWell(
-                onTap: () => context.push('/ride'),
-                borderRadius: BorderRadius.circular(100),
-                child: Container(
-                  width: 168,
-                  height: 168,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    gradient: const LinearGradient(
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                      colors: [Color(0xFFFF2D20), AppTheme.accent],
+          padding: const EdgeInsets.all(RxSpace.l),
+          child: Row(
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      recording ? 'Drive in progress' : 'Ready to drive?',
+                      style: rx.title2.copyWith(color: rx.onAccent),
                     ),
-                    boxShadow: [
-                      BoxShadow(
-                        color: AppTheme.accent.withOpacity(0.45),
-                        blurRadius: 36,
-                        spreadRadius: 2,
-                      ),
-                    ],
-                  ),
-                  child: const Center(
-                    child: Text(
-                      'START',
-                      style: TextStyle(
-                        fontSize: 28,
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 2.4,
-                        color: Colors.white,
-                      ),
+                    const SizedBox(height: RxSpace.xs),
+                    Text(
+                      recording
+                          ? 'Tap to return to your dashboard.'
+                          : 'Track speed, distance and your route.',
+                      style: rx.subheadline
+                          .copyWith(color: rx.onAccent.withOpacity(0.85)),
                     ),
-                  ),
+                  ],
                 ),
               ),
-            ),
-          ),
-          const Spacer(),
-          statsAsync.when(
-            loading: () => const Row(
-              children: [
-                GlassStatCard(value: '--', label: 'Rides'),
-                SizedBox(width: 10),
-                GlassStatCard(value: '-- km', label: 'Total Dist'),
-                SizedBox(width: 10),
-                GlassStatCard(value: '--', label: 'Top Speed'),
-              ],
-            ),
-            error: (_, __) => const Row(
-              children: [
-                GlassStatCard(value: '0', label: 'Rides'),
-                SizedBox(width: 10),
-                GlassStatCard(value: '0 km', label: 'Total Dist'),
-                SizedBox(width: 10),
-                GlassStatCard(value: '0', label: 'Top Speed'),
-              ],
-            ),
-            data: (stats) => Row(
-              children: [
-                GlassStatCard(value: '${stats['count']}', label: 'Rides'),
-                const SizedBox(width: 10),
-                GlassStatCard(
-                  value:
-                      '${(stats['totalDist'] as double).toStringAsFixed(1)} km',
-                  label: 'Total Dist',
+              Container(
+                width: 72,
+                height: 72,
+                decoration: BoxDecoration(
+                  shape: BoxShape.circle,
+                  color: rx.onAccent,
                 ),
-                const SizedBox(width: 10),
-                GlassStatCard(
-                  value:
-                      '${(stats['topSpeed'] as double).toStringAsFixed(0)} km/h',
-                  label: 'Top Speed',
+                child: Icon(
+                  recording ? CupertinoIcons.speedometer : CupertinoIcons.play_fill,
+                  color: rx.accent,
+                  size: 32,
                 ),
-              ],
-            ),
+              ),
+            ],
           ),
-          const SizedBox(height: 12),
-        ],
+        ),
       ),
     );
   }
 }
 
-class _GlassIconButton extends StatelessWidget {
-  const _GlassIconButton({
-    required this.icon,
-    required this.onPressed,
-    this.tooltip,
-  });
+class _StatsRow extends StatelessWidget {
+  const _StatsRow({required this.count, required this.km, required this.top});
 
-  final IconData icon;
-  final VoidCallback onPressed;
-  final String? tooltip;
+  final String count;
+  final String km;
+  final String top;
 
   @override
   Widget build(BuildContext context) {
-    final button = GlassContainer(
-      variant: GlassVariant.chip,
-      borderRadius: 16,
-      padding: const EdgeInsets.all(4),
-      child: IconButton(
-        icon: Icon(icon, color: AppTheme.textPrimary),
-        onPressed: onPressed,
-        tooltip: tooltip,
-      ),
+    final rx = context.rx;
+    Widget cell(String v, String unit, String label, IconData icon, Color c) =>
+        Expanded(
+          child: RxCard(
+            padding: const EdgeInsets.all(12),
+            child: RxMetric(
+              value: v,
+              unit: unit,
+              label: label,
+              icon: icon,
+              iconColor: c,
+              valueSize: 20,
+            ),
+          ),
+        );
+    return Row(
+      children: [
+        cell(count, '', 'Drives', CupertinoIcons.car_detailed, rx.accent),
+        const SizedBox(width: RxSpace.s),
+        cell(km, 'km', 'Distance', CupertinoIcons.map_fill, rx.info),
+        const SizedBox(width: RxSpace.s),
+        cell(top, 'km/h', 'Top', CupertinoIcons.bolt_fill, rx.warning),
+      ],
     );
-    return button;
+  }
+}
+
+class _RecentDriveTile extends StatelessWidget {
+  const _RecentDriveTile({required this.ride});
+
+  final Ride ride;
+
+  @override
+  Widget build(BuildContext context) {
+    final rx = context.rx;
+    return RxTile(
+      title: DateFormat('EEE, MMM d · h:mm a').format(ride.startTime),
+      subtitle:
+          '${ride.distance.toStringAsFixed(1)} km · ${formatDuration(ride.durationSeconds.toInt())} · ${ride.avgSpeed.toStringAsFixed(0)} km/h avg',
+      icon: CupertinoIcons.car_detailed,
+      iconColor: rx.accent,
+      onTap: () => context.push('/drive/ride/${ride.id}'),
+    );
   }
 }

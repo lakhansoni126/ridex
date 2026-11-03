@@ -1,9 +1,11 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
+import '../api/api_client.dart';
 import '../api/rides_repository.dart';
 
 /// Offline location point buffer with batch sync.
@@ -14,6 +16,25 @@ import '../api/rides_repository.dart';
 /// [BackgroundLocationService].
 class LocationBuffer {
   File? _fileHandle;
+
+  /// Hard cap so a long offline period can't grow the file without bound.
+  static const maxPoints = 20000;
+
+  /// Serialises every read-modify-write of the JSON file. Without this,
+  /// a GPS enqueue racing a sync could silently drop or resend points.
+  Future<void> _lock = Future.value();
+
+  Future<T> _synchronized<T>(Future<T> Function() action) {
+    final completer = Completer<T>();
+    _lock = _lock.then((_) async {
+      try {
+        completer.complete(await action());
+      } catch (e, st) {
+        completer.completeError(e, st);
+      }
+    });
+    return completer.future;
+  }
 
   Future<File> _file() async {
     if (_fileHandle != null) return _fileHandle!;
@@ -27,13 +48,22 @@ class LocationBuffer {
 
   Future<List<Map<String, dynamic>>> _readAll() async {
     final file = await _file();
-    return (jsonDecode(await file.readAsString()) as List<dynamic>)
-        .cast<Map<String, dynamic>>();
+    try {
+      return (jsonDecode(await file.readAsString()) as List<dynamic>)
+          .cast<Map<String, dynamic>>();
+    } catch (e) {
+      // Corrupt file (e.g. app killed mid-write): start fresh.
+      debugPrint('LocationBuffer: resetting unreadable buffer: $e');
+      return [];
+    }
   }
 
   Future<void> _writeAll(List<Map<String, dynamic>> list) async {
     final file = await _file();
-    await file.writeAsString(jsonEncode(list));
+    // Write to a temp file then rename, so a crash never leaves half a file.
+    final tmp = File('${file.path}.tmp');
+    await tmp.writeAsString(jsonEncode(list), flush: true);
+    await tmp.rename(file.path);
   }
 
   Future<void> enqueue({
@@ -48,24 +78,35 @@ class LocationBuffer {
     DateTime? recordedAt,
   }) async {
     final at = recordedAt ?? DateTime.now().toUtc();
-    final list = await _readAll();
-    list.add({
-      'id': DateTime.now().microsecondsSinceEpoch,
-      'targetType': targetType,
-      'targetId': targetId,
-      'lat': lat,
-      'lon': lon,
-      'speedMps': speedMps,
-      'heading': heading,
-      'accuracyM': accuracyM,
-      'status': status,
-      'recordedAt': at.toIso8601String(),
-      'synced': false,
+    await _synchronized(() async {
+      final list = await _readAll();
+      if (list.length >= maxPoints) {
+        list.removeRange(0, list.length - maxPoints + 1);
+      }
+      list.add({
+        'id': DateTime.now().microsecondsSinceEpoch,
+        'targetType': targetType,
+        'targetId': targetId,
+        'lat': lat,
+        'lon': lon,
+        'speedMps': speedMps,
+        'heading': heading,
+        'accuracyM': accuracyM,
+        'status': status,
+        'recordedAt': at.toIso8601String(),
+        'synced': false,
+      });
+      await _writeAll(list);
     });
-    await _writeAll(list);
   }
 
-  Future<List<BufferedPoint>> peekUnsynced({int limit = 100}) async {
+  Future<int> pendingCount() =>
+      _synchronized(() async => (await _readAll()).length);
+
+  Future<List<BufferedPoint>> peekUnsynced({int limit = 100}) =>
+      _synchronized(() => _peek(limit));
+
+  Future<List<BufferedPoint>> _peek(int limit) async {
     final list = await _readAll();
     return list
         .where((m) => m['synced'] != true)
@@ -92,21 +133,26 @@ class LocationBuffer {
   Future<void> markSynced(List<int> localIds) async {
     if (localIds.isEmpty) return;
     final idSet = localIds.toSet();
-    final list = await _readAll();
-    await _writeAll(list.where((m) => !idSet.contains(m['id'])).toList());
+    await _synchronized(() async {
+      final list = await _readAll();
+      await _writeAll(list.where((m) => !idSet.contains(m['id'])).toList());
+    });
   }
 
-  Future<void> clearTarget(String targetType, String targetId) async {
-    final list = await _readAll();
-    await _writeAll(
-      list
-          .where((m) =>
-              !(m['targetType'] == targetType && m['targetId'] == targetId))
-          .toList(),
-    );
-  }
+  Future<void> clearTarget(String targetType, String targetId) =>
+      _synchronized(() async {
+        final list = await _readAll();
+        await _writeAll(
+          list
+              .where((m) =>
+                  !(m['targetType'] == targetType && m['targetId'] == targetId))
+              .toList(),
+        );
+      });
 
   /// Group unsynced points by target and invoke [flushBatch] per group.
+  bool _syncing = false;
+
   Future<void> syncAll({
     required Future<void> Function(
       String targetType,
@@ -114,8 +160,24 @@ class LocationBuffer {
       List<LocationPointDto> points,
     ) flushBatch,
   }) async {
+    if (_syncing) return;
+    _syncing = true;
+    try {
+      await _syncLoop(flushBatch);
+    } finally {
+      _syncing = false;
+    }
+  }
+
+  Future<void> _syncLoop(
+    Future<void> Function(
+      String targetType,
+      String targetId,
+      List<LocationPointDto> points,
+    ) flushBatch,
+  ) async {
     while (true) {
-      final batch = await peekUnsynced(limit: 100);
+      final batch = await peekUnsynced(limit: 200);
       if (batch.isEmpty) return;
 
       final grouped = <String, List<BufferedPoint>>{};
@@ -132,6 +194,21 @@ class LocationBuffer {
         try {
           await flushBatch(type, id, points);
           await markSynced(entry.value.map((e) => e.localId).toList());
+        } on ApiException catch (e) {
+          // 4xx (ride ended, share stopped, not a participant…) will never
+          // succeed: drop those points so they don't block the queue forever.
+          final permanent = e.statusCode >= 400 &&
+              e.statusCode < 500 &&
+              e.statusCode != 401 &&
+              e.statusCode != 408 &&
+              e.statusCode != 429;
+          if (permanent) {
+            debugPrint('LocationBuffer: dropping $type/$id (${e.statusCode})');
+            await clearTarget(type, id);
+            continue;
+          }
+          debugPrint('LocationBuffer sync failed for $type/$id: $e');
+          return;
         } catch (e) {
           debugPrint('LocationBuffer sync failed for $type/$id: $e');
           return;

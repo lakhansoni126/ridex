@@ -8,6 +8,7 @@ import '../data/api/rides_repository.dart';
 import '../data/api/shares_repository.dart';
 import '../data/local/location_buffer.dart';
 import '../data/local/token_store.dart';
+import '../features/auth/application/auth_notifier.dart';
 import '../services/background_location_service.dart';
 
 final tokenStoreProvider = Provider<TokenStore>((ref) => TokenStore());
@@ -19,6 +20,9 @@ final apiClientProvider = Provider<ApiClient>((ref) {
     readRefreshToken: store.readRefreshToken,
     writeTokens: store.writeTokens,
     clearTokens: store.clear,
+    // Refresh token rejected → drop to sign-in instead of failing silently.
+    onSessionExpired: () =>
+        ref.read(authNotifierProvider.notifier).onSessionExpired(),
   );
 });
 
@@ -52,6 +56,5 @@ final backgroundLocationServiceProvider =
     buffer: ref.watch(locationBufferProvider),
     ridesRepository: ref.watch(ridesRepositoryProvider),
     sharesRepository: ref.watch(sharesRepositoryProvider),
-    tokenStore: ref.watch(tokenStoreProvider),
   );
 });

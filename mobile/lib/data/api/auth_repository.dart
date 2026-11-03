@@ -1,3 +1,7 @@
+import 'dart:io';
+
+import 'package:http/http.dart' as http;
+
 import 'api_client.dart';
 
 class AuthUser {
@@ -110,5 +114,29 @@ class AuthRepository {
   Future<AuthUser> me() async {
     final response = await _api.get('/users/me');
     return AuthUser.fromJson(ApiClient.decodeMap(response));
+  }
+
+  Future<AuthUser> updateMe({String? displayName, String? bio}) async {
+    final response = await _api.patch('/users/me', body: {
+      if (displayName != null) 'display_name': displayName,
+      if (bio != null) 'bio': bio,
+    });
+    return AuthUser.fromJson(ApiClient.decodeMap(response));
+  }
+
+  Future<AuthUser> uploadAvatar(File image) async {
+    final response = await _api.postMultipart(
+      '/users/me/avatar',
+      fields: const {},
+      files: () async => [
+        await http.MultipartFile.fromPath('avatar', image.path),
+      ],
+    );
+    return AuthUser.fromJson(ApiClient.decodeMap(response));
+  }
+
+  /// Permanently deletes the account (required for store compliance).
+  Future<void> deleteAccount() async {
+    ApiClient.decodeMap(await _api.delete('/users/me'));
   }
 }

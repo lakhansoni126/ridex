@@ -1,14 +1,14 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:image_picker/image_picker.dart';
 
 import '../../../core/providers.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../data/api/api_client.dart';
-import '../../../shared/widgets/glass.dart';
+import '../../../data/api/posts_repository.dart';
+import '../../../shared/ui/ui.dart';
 import 'community_feed_screen.dart';
 
 class ComposePostScreen extends ConsumerStatefulWidget {
@@ -19,10 +19,22 @@ class ComposePostScreen extends ConsumerStatefulWidget {
 }
 
 class _ComposePostScreenState extends ConsumerState<ComposePostScreen> {
+  static const _maxCaption = 2000;
+
   final _caption = TextEditingController();
-  File? _image;
+  final _picker = ImagePicker();
+  final List<File> _images = [];
   bool _busy = false;
-  String? _error;
+
+  bool get _dirty => _images.isNotEmpty || _caption.text.trim().isNotEmpty;
+  bool get _canPost => _images.isNotEmpty && !_busy;
+  int get _remaining => PostsRepository.maxImages - _images.length;
+
+  @override
+  void initState() {
+    super.initState();
+    _caption.addListener(() => setState(() {}));
+  }
 
   @override
   void dispose() {
@@ -30,38 +42,95 @@ class _ComposePostScreenState extends ConsumerState<ComposePostScreen> {
     super.dispose();
   }
 
-  Future<void> _pickImage() async {
-    final picker = ImagePicker();
-    final file = await picker.pickImage(
-      source: ImageSource.gallery,
-      maxWidth: 1920,
-      imageQuality: 85,
+  Future<void> _addPhotos() async {
+    if (_remaining <= 0) {
+      showRxToast(
+          context, 'You can add up to ${PostsRepository.maxImages} photos',
+          isError: true);
+      return;
+    }
+    final source = await showRxActionSheet<ImageSource>(
+      context,
+      actions: const [
+        RxSheetAction(label: 'Photo Library', value: ImageSource.gallery),
+        RxSheetAction(label: 'Take Photo', value: ImageSource.camera),
+      ],
     );
-    if (file != null) {
-      setState(() => _image = File(file.path));
+    if (source == null || !mounted) return;
+    try {
+      if (source == ImageSource.gallery) {
+        final files = await _picker.pickMultiImage(
+          maxWidth: 2048,
+          imageQuality: 85,
+        );
+        if (!mounted || files.isEmpty) return;
+        final room = _remaining;
+        setState(() {
+          _images.addAll(files.take(room).map((f) => File(f.path)));
+        });
+        if (files.length > room) {
+          showRxToast(context,
+              'Only the first ${PostsRepository.maxImages} photos were added');
+        }
+      } else {
+        final file = await _picker.pickImage(
+          source: ImageSource.camera,
+          maxWidth: 2048,
+          imageQuality: 85,
+        );
+        if (!mounted || file == null) return;
+        setState(() => _images.add(File(file.path)));
+      }
+      HapticFeedback.selectionClick();
+    } on PlatformException catch (_) {
+      if (mounted) {
+        showRxToast(
+          context,
+          'RideX needs access to your photos or camera. Allow it in Settings.',
+          isError: true,
+        );
+      }
+    } catch (e) {
+      if (mounted) showRxError(context, e);
     }
   }
 
-  Future<void> _submit() async {
-    if (_image == null) {
-      setState(() => _error = 'Add a photo to publish');
+  Future<void> _cancel() async {
+    if (_busy) return;
+    if (_dirty) {
+      final discard = await confirmRx(
+        context,
+        title: 'Discard post?',
+        message: 'Your photos and caption will be lost.',
+        confirmLabel: 'Discard',
+      );
+      if (!discard || !mounted) return;
+    }
+    context.pop();
+  }
+
+  Future<void> _post() async {
+    if (!_canPost) {
+      if (_images.isEmpty) {
+        showRxToast(context, 'Add at least one photo', isError: true);
+      }
       return;
     }
-    setState(() {
-      _busy = true;
-      _error = null;
-    });
+    FocusScope.of(context).unfocus();
+    setState(() => _busy = true);
     try {
-      await ref.read(postsRepositoryProvider).createPost(
-            caption: _caption.text.trim().isEmpty ? null : _caption.text.trim(),
-            images: _image == null ? const [] : [_image!],
+      final caption = _caption.text.trim();
+      final post = await ref.read(postsRepositoryProvider).createPost(
+            caption: caption.isEmpty ? null : caption,
+            images: List.of(_images),
           );
-      ref.invalidate(communityFeedProvider);
-      if (mounted) context.pop();
-    } on ApiException catch (e) {
-      setState(() => _error = e.message);
+      ref.read(communityFeedProvider.notifier).prepend(post);
+      if (!mounted) return;
+      HapticFeedback.mediumImpact();
+      showRxToast(context, 'Posted');
+      context.pop();
     } catch (e) {
-      setState(() => _error = e.toString());
+      if (mounted) showRxError(context, e);
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -69,59 +138,165 @@ class _ComposePostScreenState extends ConsumerState<ComposePostScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return GlassScaffold(
-      appBar: GlassAppBar(
-        title: 'New post',
-        actions: [
-          TextButton(
-            onPressed: _busy ? null : _submit,
-            child: const Text('POST', style: TextStyle(color: AppTheme.accent)),
-          ),
-        ],
-      ),
-      padding: const EdgeInsets.all(24),
-      body: SingleChildScrollView(
-        child: Column(
+    final rx = context.rx;
+    final length = _caption.text.characters.length;
+
+    return PopScope(
+      canPop: !_dirty && !_busy,
+      onPopInvoked: (didPop) {
+        if (!didPop) _cancel();
+      },
+      child: RxPage(
+        title: 'New Post',
+        leading: RxNavTextButton(label: 'Cancel', onPressed: _cancel),
+        trailing: RxNavTextButton(
+          label: 'Post',
+          bold: true,
+          busy: _busy,
+          onPressed: _canPost ? _post : null,
+        ),
+        child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          padding: const EdgeInsets.symmetric(vertical: RxSpace.m),
           children: [
-            GlassContainer(
-              variant: GlassVariant.intense,
-              child: TextField(
+            // Photos
+            SizedBox(
+              height: 120,
+              child: ListView(
+                scrollDirection: Axis.horizontal,
+                padding: const EdgeInsets.symmetric(horizontal: RxSpace.inset),
+                children: [
+                  for (var i = 0; i < _images.length; i++)
+                    Padding(
+                      padding: const EdgeInsets.only(right: RxSpace.s),
+                      child: _Thumb(
+                        file: _images[i],
+                        onRemove: _busy
+                            ? null
+                            : () => setState(() => _images.removeAt(i)),
+                      ),
+                    ),
+                  if (_remaining > 0)
+                    Semantics(
+                      button: true,
+                      label: 'Add photos',
+                      child: RxPressable(
+                        onTap: _busy ? () {} : _addPhotos,
+                        child: Container(
+                          width: 120,
+                          decoration: BoxDecoration(
+                            color: rx.card,
+                            borderRadius: BorderRadius.circular(RxSpace.radius),
+                            border: Border.all(color: rx.separator),
+                          ),
+                          child: Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              Icon(CupertinoIcons.camera_fill,
+                                  color: rx.accent, size: 28),
+                              const SizedBox(height: 6),
+                              Text(
+                                _images.isEmpty
+                                    ? 'Add Photos'
+                                    : '$_remaining more',
+                                style: rx.footnote.copyWith(color: rx.accent),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(height: RxSpace.l),
+
+            // Caption
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: RxSpace.inset),
+              child: RxTextField(
                 controller: _caption,
-                maxLines: 5,
-                style: const TextStyle(color: AppTheme.textPrimary),
-                cursorColor: AppTheme.accent,
-                decoration: const InputDecoration(
-                  hintText: 'Share a moment from the road…',
-                  hintStyle: TextStyle(color: AppTheme.textSecondary),
-                  border: InputBorder.none,
+                placeholder: 'Write a caption…',
+                maxLines: 8,
+                minLines: 4,
+                maxLength: _maxCaption,
+                textCapitalization: TextCapitalization.sentences,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  RxSpace.inset, 6, RxSpace.inset + 4, 0),
+              child: Text(
+                '$length / $_maxCaption',
+                textAlign: TextAlign.right,
+                style: rx.caption.copyWith(
+                  color: length > _maxCaption * 0.9
+                      ? rx.warning
+                      : rx.secondaryLabel,
                 ),
               ),
             ),
-            const SizedBox(height: 16),
-            if (_image != null)
-              ClipRRect(
-                borderRadius: BorderRadius.circular(16),
-                child: Image.file(_image!, height: 220, fit: BoxFit.cover),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(
+                  RxSpace.inset, RxSpace.m, RxSpace.inset, 0),
+              child: Text(
+                'Posts are visible to everyone on RideX. Avoid sharing photos that show your home address or licence plates you don\'t want public.',
+                style: rx.footnote,
               ),
-            const SizedBox(height: 16),
-            GlassButton(
-              label: _image == null ? 'ADD PHOTO' : 'CHANGE PHOTO',
-              style: GlassButtonStyle.secondary,
-              icon: Icons.photo_outlined,
-              onPressed: _pickImage,
-            ),
-            if (_error != null) ...[
-              const SizedBox(height: 16),
-              Text(_error!, style: const TextStyle(color: AppTheme.accent)),
-            ],
-            const SizedBox(height: 24),
-            GlassButton(
-              label: 'PUBLISH',
-              busy: _busy,
-              onPressed: _busy ? null : _submit,
             ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _Thumb extends StatelessWidget {
+  const _Thumb({required this.file, required this.onRemove});
+
+  final File file;
+  final VoidCallback? onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final rx = context.rx;
+    return SizedBox(
+      width: 120,
+      height: 120,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(RxSpace.radius),
+              child: Image.file(file, fit: BoxFit.cover, cacheWidth: 360),
+            ),
+          ),
+          if (onRemove != null)
+            Positioned(
+              top: 0,
+              right: 0,
+              child: Semantics(
+                button: true,
+                label: 'Remove photo',
+                child: CupertinoButton(
+                  padding: EdgeInsets.zero,
+                  minSize: RxSpace.minTouch,
+                  onPressed: onRemove,
+                  child: Container(
+                    width: 24,
+                    height: 24,
+                    decoration: BoxDecoration(
+                      color: const Color(0xB3000000),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: rx.card, width: 1.5),
+                    ),
+                    child: const Icon(CupertinoIcons.xmark,
+                        size: 12, color: Color(0xFFFFFFFF)),
+                  ),
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }

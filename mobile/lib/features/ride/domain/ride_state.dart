@@ -9,6 +9,8 @@ class RideState with _$RideState {
     @Default(false) bool isRecording,
     @Default(false) bool isPaused,
     @Default(false) bool hasCrashed,
+    @Default(false) bool isManuallyPaused,
+    String? errorMessage,
     @Default(0.0) double currentSpeed, // km/h
     @Default(0.0) double topSpeed, // km/h
     @Default(0.0) double distance, // km

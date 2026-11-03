@@ -1,19 +1,31 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
+
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:go_router/go_router.dart';
 import 'package:url_launcher/url_launcher.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/glass.dart';
-import '../domain/ride_engine.dart';
 
+import '../../../shared/ui/ui.dart';
+import '../domain/ride_engine.dart';
+import '../domain/ride_state.dart';
+import 'home_dashboard_screen.dart';
+
+enum _FinishChoice { save, discard }
+
+/// Full-screen live dashboard while recording a solo drive.
 class RideDashboardScreen extends ConsumerStatefulWidget {
   const RideDashboardScreen({super.key});
 
   @override
-  ConsumerState<RideDashboardScreen> createState() => _RideDashboardScreenState();
+  ConsumerState<RideDashboardScreen> createState() =>
+      _RideDashboardScreenState();
 }
 
 class _RideDashboardScreenState extends ConsumerState<RideDashboardScreen> {
+  bool _finishing = false;
+
   @override
   void initState() {
     super.initState();
@@ -22,222 +34,321 @@ class _RideDashboardScreenState extends ConsumerState<RideDashboardScreen> {
     });
   }
 
-  String _formatDuration(int seconds) {
-    final h = seconds ~/ 3600;
-    final m = (seconds % 3600) ~/ 60;
-    final s = seconds % 60;
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${s.toString().padLeft(2, '0')}';
+  Future<void> _finish() async {
+    final state = ref.read(rideEngineProvider);
+    final choice = await showRxActionSheet<_FinishChoice>(
+      context,
+      title: 'Finish this drive?',
+      message:
+          '${state.distance.toStringAsFixed(2)} km · ${formatDuration(state.durationSeconds)}',
+      actions: const [
+        RxSheetAction(
+            label: 'Save Drive', value: _FinishChoice.save, isDefault: true),
+        RxSheetAction(
+            label: 'Discard Drive',
+            value: _FinishChoice.discard,
+            destructive: true),
+      ],
+    );
+    if (choice == null || !mounted) return;
+    final engine = ref.read(rideEngineProvider.notifier);
+    setState(() => _finishing = true);
+    if (choice == _FinishChoice.discard) {
+      await engine.discardRide();
+      if (mounted) context.pop();
+      return;
+    }
+    final id = await engine.stopRide();
+    ref.invalidate(driveStatsProvider);
+    if (!mounted) return;
+    HapticFeedback.mediumImpact();
+    if (id == null) {
+      showRxToast(context, 'Drive was too short to save.', isError: true);
+      context.pop();
+    } else {
+      showRxToast(context, 'Drive saved');
+      context.pop();
+      context.push('/drive/ride/$id');
+    }
   }
 
-  void _triggerSosSms(double lat, double lon) async {
-    final url = Uri.parse(
-      'sms:?body=SOS! I may need help on the road (RideX). Location: https://maps.google.com/?q=$lat,$lon'
-    );
+  Future<void> _sendSos(RideState s) async {
+    final lat = s.lastPosition?.latitude;
+    final lon = s.lastPosition?.longitude;
+    final where = lat == null
+        ? ''
+        : ' My location: https://maps.google.com/?q=$lat,$lon';
+    final uri = Uri.parse(
+        'sms:?body=${Uri.encodeComponent('SOS — I may need help on the road (RideX).$where')}');
     try {
-      if (await canLaunchUrl(url)) {
-        await launchUrl(url);
-      }
+      await launchUrl(uri);
     } catch (e) {
-      debugPrint('Could not launch SMS: $e');
+      if (mounted) showRxToast(context, 'Could not open Messages.', isError: true);
     }
+    ref.read(rideEngineProvider.notifier).cancelSOS();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final rideState = ref.watch(rideEngineProvider);
+    final rx = context.rx;
+    final s = ref.watch(rideEngineProvider);
 
-    // ── SOS CRASH OVERLAY ──
-    if (rideState.hasCrashed) {
-      return Scaffold(
-        backgroundColor: Colors.red[900],
-        body: SafeArea(
-          child: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                const Icon(Icons.warning_amber_rounded, size: 100, color: Colors.white),
-                const SizedBox(height: 20),
-                const Text('CRASH DETECTED', style: TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white)),
-                const SizedBox(height: 10),
-                const Text('Are you okay?', style: TextStyle(fontSize: 18, color: Colors.white70)),
-                const SizedBox(height: 40),
-                ElevatedButton(
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: Colors.white,
-                    foregroundColor: Colors.red,
-                    padding: const EdgeInsets.symmetric(horizontal: 40, vertical: 20),
-                  ),
-                  onPressed: () {
-                    ref.read(rideEngineProvider.notifier).cancelSOS();
-                  },
-                  child: const Text('I AM OKAY - CANCEL', style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
-                ),
-                const SizedBox(height: 20),
-                TextButton(
-                  onPressed: () {
-                    _triggerSosSms(
-                      rideState.lastPosition?.latitude ?? 0,
-                      rideState.lastPosition?.longitude ?? 0,
-                    );
-                    ref.read(rideEngineProvider.notifier).cancelSOS();
-                  },
-                  child: const Text('SEND SOS NOW', style: TextStyle(color: Colors.white70, fontSize: 16)),
-                ),
-              ],
-            ),
+    if (s.hasCrashed) {
+      return _CrashOverlay(
+        onOk: () => ref.read(rideEngineProvider.notifier).cancelSOS(),
+        onSos: () => _sendSos(s),
+      );
+    }
+
+    if (s.errorMessage != null) {
+      return RxPage(
+        title: 'Drive',
+        leading: RxNavTextButton(
+          label: 'Close',
+          onPressed: () {
+            ref.read(rideEngineProvider.notifier).clearError();
+            context.pop();
+          },
+        ),
+        child: Center(
+          child: RxEmptyState(
+            icon: CupertinoIcons.location_slash,
+            title: 'Location Needed',
+            message: s.errorMessage,
+            actionLabel: 'Open Settings',
+            onAction: () async {
+              await Geolocator.openAppSettings();
+            },
           ),
         ),
       );
     }
 
-    // ── NORMAL RIDE DASHBOARD ──
-    return GlassScaffold(
-      body: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 16.0),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-                  decoration: BoxDecoration(
-                    color: rideState.isPaused
-                        ? Colors.orange.withOpacity(0.2)
-                        : AppTheme.accentSoft,
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(
-                      color: rideState.isPaused
-                          ? Colors.orange.withOpacity(0.5)
-                          : AppTheme.accent.withOpacity(0.5),
-                    ),
+    final paused = s.isManuallyPaused || s.isPaused;
+    final statusLabel = !s.isRecording
+        ? 'Starting…'
+        : s.isManuallyPaused
+            ? 'Paused'
+            : s.isPaused
+                ? 'Auto-paused'
+                : 'Recording';
+    final statusColor = paused ? rx.warning : rx.destructive;
+    final avg = s.durationSeconds > 0
+        ? s.distance / (s.durationSeconds / 3600)
+        : 0.0;
+
+    return CupertinoPageScaffold(
+      backgroundColor: rx.background,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: RxSpace.inset),
+          child: Column(
+            children: [
+              const SizedBox(height: RxSpace.s),
+              Row(
+                children: [
+                  RxMapButton(
+                    icon: CupertinoIcons.chevron_down,
+                    semanticLabel: 'Minimise dashboard',
+                    onPressed: () => context.pop(),
                   ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        Icons.circle,
-                        color: rideState.isPaused ? Colors.orange : AppTheme.accent,
-                        size: 10,
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        rideState.isPaused ? 'PAUSED' : 'REC',
-                        style: TextStyle(
-                          color: rideState.isPaused ? Colors.orange : AppTheme.accent,
-                          fontWeight: FontWeight.bold,
-                          fontSize: 12,
-                          letterSpacing: 1,
-                        ),
-                      ),
-                    ],
+                  const Spacer(),
+                  RxPill(
+                    label: statusLabel.toUpperCase(),
+                    color: statusColor,
+                    icon: CupertinoIcons.circle_fill,
                   ),
-                ),
-                if (rideState.weatherCondition != null)
-                  Text(
-                    '${rideState.temperature?.toStringAsFixed(0) ?? '--'}°C • ${rideState.weatherCondition}',
-                    style: const TextStyle(color: AppTheme.textSecondary, fontSize: 13),
-                  ),
-                GlassContainer(
-                  variant: GlassVariant.chip,
-                  padding: const EdgeInsets.all(4),
-                  borderRadius: 14,
-                  child: IconButton(
-                    icon: const Icon(Icons.map, color: AppTheme.textPrimary, size: 22),
+                  const Spacer(),
+                  RxMapButton(
+                    icon: CupertinoIcons.map,
+                    semanticLabel: 'Open live map',
                     onPressed: () => context.push('/map'),
                   ),
-                ),
-              ],
-            ),
-          ),
-          const Spacer(),
-          Text(
-            rideState.currentSpeed.toStringAsFixed(0),
-            style: theme.textTheme.displayLarge?.copyWith(
-              fontSize: 140,
-              height: 1.0,
-              letterSpacing: -5,
-              color: AppTheme.textPrimary,
-            ),
-          ),
-          Text(
-            'KM/H',
-            style: TextStyle(
-              fontSize: 24,
-              color: AppTheme.accent,
-              letterSpacing: 4,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          const Spacer(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0),
-            child: GlassContainer(
-              variant: GlassVariant.intense,
-              padding: const EdgeInsets.all(20),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildMetric(context, 'TRIP', '${rideState.distance.toStringAsFixed(1)} km'),
-                  _buildMetric(context, 'TIME', _formatDuration(rideState.durationSeconds)),
-                  _buildMetric(context, 'TILT', '${rideState.currentLeanAngle.toStringAsFixed(0)}°'),
-                  _buildMetric(context, 'TOP', '${rideState.topSpeed.toStringAsFixed(0)} km/h'),
                 ],
               ),
-            ),
-          ),
-          const SizedBox(height: 30),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 24.0, vertical: 20.0),
-            child: GlassContainer(
-              variant: GlassVariant.card,
-              padding: const EdgeInsets.symmetric(vertical: 20),
-              borderRadius: 30,
-              onTap: () async {
-                await ref.read(rideEngineProvider.notifier).stopRide();
-                if (context.mounted) {
-                  context.go('/history');
-                }
-              },
-              child: const Center(
-                child: Text(
-                  'FINISH RIDE',
-                  style: TextStyle(
-                    color: AppTheme.accent,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 2,
-                  ),
+              if (s.weatherCondition != null) ...[
+                const SizedBox(height: RxSpace.s),
+                Text(
+                  '${s.temperature?.toStringAsFixed(0) ?? '--'}°C · ${s.weatherCondition}',
+                  style: rx.footnote,
+                ),
+              ],
+              const Spacer(),
+              Semantics(
+                label: 'Speed ${s.currentSpeed.toStringAsFixed(0)} kilometres per hour',
+                excludeSemantics: true,
+                child: Column(
+                  children: [
+                    FittedBox(
+                      child: Text(
+                        s.currentSpeed.toStringAsFixed(0),
+                        style: rx.numeric(132, weight: FontWeight.w700)
+                            .copyWith(height: 1, letterSpacing: -4),
+                      ),
+                    ),
+                    Text('km/h',
+                        style: rx.title3.copyWith(color: rx.secondaryLabel)),
+                  ],
                 ),
               ),
-            ),
+              const Spacer(),
+              RxCard(
+                padding: const EdgeInsets.all(RxSpace.m + 4),
+                radius: RxSpace.radiusLarge,
+                child: RxMetricGrid(metrics: [
+                  RxMetric(
+                    label: 'Distance',
+                    value: s.distance.toStringAsFixed(2),
+                    unit: 'km',
+                    icon: CupertinoIcons.map_fill,
+                    iconColor: rx.info,
+                  ),
+                  RxMetric(
+                    label: 'Time',
+                    value: formatDuration(s.durationSeconds),
+                    icon: CupertinoIcons.timer,
+                    iconColor: rx.indigo,
+                  ),
+                  RxMetric(
+                    label: 'Average',
+                    value: avg.isFinite ? avg.toStringAsFixed(0) : '0',
+                    unit: 'km/h',
+                    icon: CupertinoIcons.gauge,
+                    iconColor: rx.teal,
+                  ),
+                  RxMetric(
+                    label: 'Top',
+                    value: s.topSpeed.toStringAsFixed(0),
+                    unit: 'km/h',
+                    icon: CupertinoIcons.bolt_fill,
+                    iconColor: rx.warning,
+                  ),
+                ]),
+              ),
+              const SizedBox(height: RxSpace.l),
+              Row(
+                children: [
+                  Expanded(
+                    child: RxButton.tinted(
+                      label: s.isManuallyPaused ? 'Resume' : 'Pause',
+                      icon: s.isManuallyPaused
+                          ? CupertinoIcons.play_fill
+                          : CupertinoIcons.pause_fill,
+                      onPressed: s.isRecording
+                          ? () => ref
+                              .read(rideEngineProvider.notifier)
+                              .togglePause()
+                          : null,
+                    ),
+                  ),
+                  const SizedBox(width: RxSpace.m),
+                  Expanded(
+                    child: RxButton(
+                      label: 'Finish',
+                      icon: CupertinoIcons.stop_fill,
+                      busy: _finishing,
+                      onPressed: s.isRecording ? _finish : null,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: RxSpace.m),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
+}
 
-  Widget _buildMetric(BuildContext context, String label, String value) {
-    return Column(
-      children: [
-        Text(
-          value,
-          style: Theme.of(context).textTheme.titleLarge?.copyWith(
-            fontWeight: FontWeight.bold,
-            fontSize: 16,
+/// Possible crash: 30s countdown, then prompts to send an SOS text.
+class _CrashOverlay extends StatefulWidget {
+  const _CrashOverlay({required this.onOk, required this.onSos});
+
+  final VoidCallback onOk;
+  final VoidCallback onSos;
+
+  @override
+  State<_CrashOverlay> createState() => _CrashOverlayState();
+}
+
+class _CrashOverlayState extends State<_CrashOverlay> {
+  static const _total = 30;
+  int _left = _total;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    HapticFeedback.heavyImpact();
+    _timer = Timer.periodic(const Duration(seconds: 1), (t) {
+      if (!mounted) return;
+      HapticFeedback.mediumImpact();
+      setState(() => _left--);
+      if (_left <= 0) {
+        t.cancel();
+        widget.onSos();
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final rx = context.rx;
+    const white = Color(0xFFFFFFFF);
+    return CupertinoPageScaffold(
+      backgroundColor: rx.destructive,
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.all(RxSpace.l),
+          child: Column(
+            children: [
+              const Spacer(),
+              const Icon(CupertinoIcons.exclamationmark_triangle_fill,
+                  size: 72, color: white),
+              const SizedBox(height: RxSpace.m),
+              Text('Possible Crash Detected',
+                  style: rx.title1.copyWith(color: white),
+                  textAlign: TextAlign.center),
+              const SizedBox(height: RxSpace.s),
+              Text(
+                'If you don\'t respond, RideX will open an SOS message with your location in $_left s.',
+                style: rx.body.copyWith(color: white.withOpacity(0.9)),
+                textAlign: TextAlign.center,
+              ),
+              const Spacer(),
+              SizedBox(
+                width: double.infinity,
+                child: CupertinoButton(
+                  color: white,
+                  borderRadius: BorderRadius.circular(RxSpace.radius),
+                  onPressed: () {
+                    _timer?.cancel();
+                    widget.onOk();
+                  },
+                  child: Text("I'm OK",
+                      style: rx.headline.copyWith(color: rx.destructive)),
+                ),
+              ),
+              const SizedBox(height: RxSpace.m),
+              CupertinoButton(
+                onPressed: () {
+                  _timer?.cancel();
+                  widget.onSos();
+                },
+                child: Text('Send SOS Now',
+                    style: rx.headline.copyWith(color: white)),
+              ),
+            ],
           ),
         ),
-        const SizedBox(height: 4),
-        Text(
-          label,
-          style: const TextStyle(
-            color: AppTheme.textSecondary,
-            fontSize: 11,
-            letterSpacing: 1,
-          ),
-        ),
-      ],
+      ),
     );
   }
 }

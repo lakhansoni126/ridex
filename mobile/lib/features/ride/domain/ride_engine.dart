@@ -33,10 +33,15 @@ class RideEngine extends StateNotifier<RideState> {
   Future<void> startRide() async {
     if (state.isRecording) return;
 
-    debugPrint('RideEngine: Requesting permissions...');
+    state = const RideState();
     final hasPermission = await _locationService.requestPermissions();
     if (!hasPermission) {
-      debugPrint('RideEngine: ❌ Permission denied, ride will NOT start.');
+      if (mounted) {
+        state = const RideState(
+          errorMessage:
+              'RideX needs location access to record a drive. Turn on Location and allow access in Settings.',
+        );
+      }
       return;
     }
     debugPrint('RideEngine: ✅ Permission granted.');
@@ -76,7 +81,7 @@ class RideEngine extends StateNotifier<RideState> {
     // ── 5. Start duration timer ──
     _durationTimer = Timer.periodic(const Duration(seconds: 1), (timer) {
       if (!mounted) { timer.cancel(); return; }
-      if (!state.isPaused) {
+      if (!state.isPaused && !state.isManuallyPaused) {
         state = state.copyWith(
           durationSeconds: state.durationSeconds + 1,
           currentLeanAngle: _imuService.currentLeanAngle,
@@ -114,6 +119,12 @@ class RideEngine extends StateNotifier<RideState> {
 
   void _processNewPosition(Position position) {
     if (!mounted || !state.isRecording) return;
+    if (state.isManuallyPaused) {
+      state = state.copyWith(lastPosition: position, currentSpeed: 0);
+      return;
+    }
+    // Drop very inaccurate fixes so they don't inflate distance.
+    if (position.accuracy > 50 && state.lastPosition != null) return;
 
     final speedKmh = (position.speed * 3.6).clamp(0.0, 500.0);
 
@@ -163,21 +174,45 @@ class RideEngine extends StateNotifier<RideState> {
     );
   }
 
+  void togglePause() {
+    if (!mounted || !state.isRecording) return;
+    state = state.copyWith(
+      isManuallyPaused: !state.isManuallyPaused,
+      currentSpeed: 0,
+    );
+  }
+
+  /// Stops without saving anything.
+  Future<void> discardRide() async {
+    _durationTimer?.cancel();
+    await _positionSubscription?.cancel();
+    _positionSubscription = null;
+    _imuService.stopTracking();
+    if (mounted) state = const RideState();
+  }
+
+  void clearError() {
+    if (mounted && state.errorMessage != null) state = const RideState();
+  }
+
   void cancelSOS() {
     if (mounted) {
       state = state.copyWith(hasCrashed: false);
     }
   }
 
-  Future<void> stopRide() async {
-    if (!state.isRecording) return;
+  /// Stops recording and saves. Returns the local ride id, or null if there
+  /// was nothing worth saving.
+  Future<int?> stopRide() async {
+    if (!state.isRecording) return null;
+    int? savedId;
 
     debugPrint('RideEngine: 🛑 Stopping ride...');
     _durationTimer?.cancel();
     _positionSubscription?.cancel();
     _imuService.stopTracking();
 
-    if (state.routePoints.isNotEmpty || state.durationSeconds > 0) {
+    if (state.routePoints.length >= 2 && state.durationSeconds >= 10) {
       try {
         final duration = state.durationSeconds.toDouble();
         final avgSpeed = duration > 0
@@ -202,12 +237,13 @@ class RideEngine extends StateNotifier<RideState> {
           ..heading = p.heading
           ..altitude = p.altitude
           ..accuracy = p.accuracy
-          ..timestamp = p.timestamp ?? DateTime.now()
+          ..timestamp = p.timestamp
         ).toList();
 
         // Note: we no longer do ride.points.addAll(points) here because IsarLinks 
         // require the parent to be managed first. DatabaseService handles it.
         await _dbService.saveRide(ride, points);
+        savedId = ride.id;
         debugPrint('RideEngine: ✅ Ride saved! ${points.length} GPS points, ${state.distance.toStringAsFixed(2)} km');
       } catch (e) {
         debugPrint('RideEngine: ❌ Error saving ride: $e');
@@ -219,6 +255,7 @@ class RideEngine extends StateNotifier<RideState> {
     if (mounted) {
       state = const RideState();
     }
+    return savedId;
   }
 
   @override

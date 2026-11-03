@@ -1,351 +1,281 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Material, MaterialType;
+import 'package:flutter_map/flutter_map.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
 import 'package:intl/intl.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../shared/widgets/glass.dart';
-import '../../../main.dart';
-import '../../../database/models.dart';
-import '../../map/domain/polyline_engine.dart';
+import 'package:latlong2/latlong.dart';
 
-class RideDetailScreen extends ConsumerStatefulWidget {
-  final int rideId;
+import '../../../database/models.dart';
+import '../../../main.dart';
+import '../../../services/export_service.dart';
+import '../../../shared/ui/ui.dart';
+import '../../map/domain/polyline_engine.dart';
+import '../../ride/presentation/home_dashboard_screen.dart';
+import 'history_screen.dart';
+
+final rideDetailProvider =
+    FutureProvider.autoDispose.family<Ride?, int>((ref, id) {
+  return dbService.getRideById(id);
+});
+
+enum _Action { replay, export, delete }
+
+/// Route map (coloured by speed) + full stats for one local drive.
+class RideDetailScreen extends ConsumerWidget {
   const RideDetailScreen({super.key, required this.rideId});
 
-  @override
-  ConsumerState<RideDetailScreen> createState() => _RideDetailScreenState();
-}
+  final int rideId;
 
-class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
-  Ride? _ride;
-  bool _loading = true;
-  String? _error;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadRide();
-  }
-
-  Future<void> _loadRide() async {
-    try {
-      final ride = await dbService.getRideById(widget.rideId);
-      if (mounted) {
-        setState(() {
-          _ride = ride;
-          _loading = false;
-          if (ride == null) _error = 'Ride not found';
-        });
-      }
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = 'Error loading ride: $e';
-        });
-      }
+  Future<void> _more(BuildContext context, WidgetRef ref, Ride ride) async {
+    final action = await showRxActionSheet<_Action>(
+      context,
+      actions: const [
+        RxSheetAction(label: 'Replay Drive', value: _Action.replay),
+        RxSheetAction(label: 'Export as JSON', value: _Action.export),
+        RxSheetAction(
+            label: 'Delete Drive', value: _Action.delete, destructive: true),
+      ],
+    );
+    if (!context.mounted || action == null) return;
+    switch (action) {
+      case _Action.replay:
+        context.push('/drive/ride/$rideId/replay');
+      case _Action.export:
+        try {
+          await ExportService.exportRideToJson(ride);
+        } catch (e) {
+          if (context.mounted) showRxError(context, e);
+        }
+      case _Action.delete:
+        final ok = await confirmRx(
+          context,
+          title: 'Delete This Drive?',
+          message: 'This can\'t be undone.',
+          confirmLabel: 'Delete',
+        );
+        if (!ok) return;
+        await dbService.deleteRide(rideId);
+        ref.invalidate(historyProvider);
+        ref.invalidate(driveStatsProvider);
+        if (context.mounted) context.pop();
     }
   }
 
-  String _formatDuration(double seconds) {
-    final s = seconds.toInt();
-    final h = s ~/ 3600;
-    final m = (s % 3600) ~/ 60;
-    final sec = s % 60;
-    return '${h.toString().padLeft(2, '0')}:${m.toString().padLeft(2, '0')}:${sec.toString().padLeft(2, '0')}';
-  }
-
   @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
+  Widget build(BuildContext context, WidgetRef ref) {
+    final rx = context.rx;
+    final async = ref.watch(rideDetailProvider(rideId));
 
-    if (_loading) {
-      return const GlassScaffold(
-        body: Center(child: CircularProgressIndicator()),
-      );
-    }
-
-    if (_error != null || _ride == null) {
-      return GlassScaffold(
-        appBar: const GlassAppBar(title: 'Ride'),
-        body: Center(
-          child: Text(_error ?? 'Ride not found',
-              style: const TextStyle(color: AppTheme.textSecondary)),
-        ),
-      );
-    }
-
-    final ride = _ride!;
-    final ridePoints = ride.points.toList();
-    final polylines = PolylineEngine.generateHeatmap(ridePoints);
-
-    // Calculate map bounds from ride points
-    LatLng center = const LatLng(20.5937, 78.9629); // Default India
-    double zoom = 5.0;
-
-    if (ridePoints.isNotEmpty) {
-      double minLat = ridePoints.first.latitude;
-      double maxLat = ridePoints.first.latitude;
-      double minLon = ridePoints.first.longitude;
-      double maxLon = ridePoints.first.longitude;
-
-      for (final p in ridePoints) {
-        if (p.latitude < minLat) minLat = p.latitude;
-        if (p.latitude > maxLat) maxLat = p.latitude;
-        if (p.longitude < minLon) minLon = p.longitude;
-        if (p.longitude > maxLon) maxLon = p.longitude;
-      }
-
-      center = LatLng((minLat + maxLat) / 2, (minLon + maxLon) / 2);
-      // Rough zoom estimation based on coordinate span
-      final latSpan = maxLat - minLat;
-      final lonSpan = maxLon - minLon;
-      final span = latSpan > lonSpan ? latSpan : lonSpan;
-      if (span < 0.005) {
-        zoom = 17.0;
-      } else if (span < 0.01) {
-        zoom = 16.0;
-      } else if (span < 0.05) {
-        zoom = 14.0;
-      } else if (span < 0.1) {
-        zoom = 13.0;
-      } else if (span < 0.5) {
-        zoom = 11.0;
-      } else {
-        zoom = 9.0;
-      }
-    }
-
-    // Start and end markers
-    final markers = <Marker>[];
-    if (ridePoints.isNotEmpty) {
-      markers.add(Marker(
-        point: LatLng(ridePoints.first.latitude, ridePoints.first.longitude),
-        width: 36,
-        height: 36,
-        child: Container(
-          decoration: BoxDecoration(
-            color: Colors.greenAccent.withOpacity(0.9),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: Colors.greenAccent.withOpacity(0.4),
-                blurRadius: 8,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Icon(Icons.play_arrow, color: Colors.white, size: 18),
-          ),
-        ),
-      ));
-      markers.add(Marker(
-        point: LatLng(ridePoints.last.latitude, ridePoints.last.longitude),
-        width: 36,
-        height: 36,
-        child: Container(
-          decoration: BoxDecoration(
-            color: AppTheme.accent.withOpacity(0.9),
-            shape: BoxShape.circle,
-            border: Border.all(color: Colors.white, width: 2),
-            boxShadow: [
-              BoxShadow(
-                color: AppTheme.accent.withOpacity(0.4),
-                blurRadius: 8,
-                spreadRadius: 2,
-              ),
-            ],
-          ),
-          child: const Center(
-            child: Icon(Icons.stop, color: Colors.white, size: 18),
-          ),
-        ),
-      ));
-    }
-
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      body: Stack(
-        children: [
-          // ── FULL SCREEN MAP ──
-          FlutterMap(
-            options: MapOptions(
-              initialCenter: center,
-              initialZoom: zoom,
-            ),
-            children: [
-              TileLayer(
-                urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                userAgentPackageName: 'com.example.ridex',
-                tileBuilder: (context, tileWidget, tile) {
-                  return ColorFiltered(
-                    colorFilter: const ColorFilter.matrix([
-                      -1,  0,  0, 0, 255,
-                       0, -1,  0, 0, 255,
-                       0,  0, -1, 0, 255,
-                       0,  0,  0, 1,   0,
-                    ]),
-                    child: tileWidget,
-                  );
-                },
-              ),
-              if (polylines.isNotEmpty)
-                PolylineLayer(polylines: polylines),
-              if (markers.isNotEmpty)
-                MarkerLayer(markers: markers),
-            ],
-          ),
-
-          // ── TOP BAR ──
-          SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.all(16.0),
-              child: Row(
-                children: [
-                  GlassContainer(
-                    variant: GlassVariant.mapOverlay,
-                    padding: const EdgeInsets.all(4),
-                    borderRadius: 12,
-                    child: IconButton(
-                      icon: const Icon(Icons.arrow_back_ios,
-                          color: AppTheme.textPrimary, size: 20),
-                      onPressed: () => context.pop(),
-                    ),
-                  ),
-                  const SizedBox(width: 12),
-                  GlassContainer(
-                    variant: GlassVariant.mapOverlay,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 16, vertical: 12),
-                    borderRadius: 12,
-                    child: Text(
-                      DateFormat('MMM dd, yyyy • hh:mm a')
-                          .format(ride.startTime),
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        letterSpacing: 1,
-                        fontSize: 13,
-                        color: AppTheme.textPrimary,
-                      ),
-                    ),
-                  ),
-                ],
+    return async.when(
+      loading: () => const RxPage(
+        title: 'Drive',
+        child: Center(child: CupertinoActivityIndicator()),
+      ),
+      error: (e, _) => RxPage(
+        title: 'Drive',
+        child: Center(child: RxErrorState(error: e)),
+      ),
+      data: (ride) {
+        if (ride == null) {
+          return const RxPage(
+            title: 'Drive',
+            child: Center(
+              child: RxEmptyState(
+                icon: CupertinoIcons.question_circle,
+                title: 'Drive Not Found',
+                message: 'It may have been deleted.',
               ),
             ),
-          ),
+          );
+        }
+        final points = ride.points.toList()
+          ..sort((a, b) => a.timestamp.compareTo(b.timestamp));
+        final bounds = PolylineEngine.bounds(points);
+        final polylines = PolylineEngine.generateHeatmap(points);
+        final mapHeight = MediaQuery.sizeOf(context).height * 0.42;
 
-          // ── BOTTOM STATS PANEL ──
-          Positioned(
-            left: 16,
-            right: 16,
-            bottom: 24,
-            child: Column(
+        return CupertinoPageScaffold(
+          backgroundColor: rx.background,
+          child: Material(
+            type: MaterialType.transparency,
+            child: Stack(
               children: [
-                // Speed Legend
-                GlassContainer(
-                  variant: GlassVariant.mapOverlay,
-                  padding:
-                      const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                  borderRadius: 12,
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                    children: [
-                      _legendDot(Colors.greenAccent, '< 40'),
-                      _legendDot(Colors.yellowAccent, '40-80'),
-                      _legendDot(Colors.orangeAccent, '80-120'),
-                      _legendDot(AppTheme.accent, '> 120'),
-                      const Text('km/h',
-                          style: TextStyle(
-                              color: AppTheme.textSecondary, fontSize: 11)),
-                    ],
-                  ),
+                CustomScrollView(
+                  physics: const BouncingScrollPhysics(),
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: mapHeight,
+                        child: points.isEmpty
+                            ? Container(
+                                color: rx.fill,
+                                alignment: Alignment.center,
+                                child: Text('No GPS points recorded',
+                                    style: rx.subheadline),
+                              )
+                            : FlutterMap(
+                                options: MapOptions(
+                                  initialCameraFit: CameraFit.bounds(
+                                    bounds: bounds!,
+                                    padding: const EdgeInsets.fromLTRB(
+                                        40, 100, 40, 40),
+                                    maxZoom: 17,
+                                  ),
+                                  interactionOptions: const InteractionOptions(
+                                    flags: InteractiveFlag.all &
+                                        ~InteractiveFlag.rotate,
+                                  ),
+                                ),
+                                children: [
+                                  const RxTileLayer(),
+                                  PolylineLayer(polylines: polylines),
+                                  MarkerLayer(markers: [
+                                    _endpoint(points.first, rx.success,
+                                        CupertinoIcons.flag_fill),
+                                    _endpoint(points.last, rx.destructive,
+                                        CupertinoIcons.flag_circle_fill),
+                                  ]),
+                                  const RxMapAttribution(),
+                                ],
+                              ),
+                      ),
+                    ),
+                    RxSliverPadding(
+                      top: RxSpace.l,
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(DateFormat('EEEE, MMM d').format(ride.startTime),
+                              style: rx.title2),
+                          const SizedBox(height: 2),
+                          Text(
+                            '${DateFormat('h:mm a').format(ride.startTime)}'
+                            '${ride.endTime != null ? ' – ${DateFormat('h:mm a').format(ride.endTime!)}' : ''}'
+                            '${ride.weatherCondition != null ? ' · ${ride.temperatureCelsius?.toStringAsFixed(0) ?? '--'}°C ${ride.weatherCondition}' : ''}',
+                            style: rx.subheadline,
+                          ),
+                        ],
+                      ),
+                    ),
+                    RxSliverPadding(
+                      top: RxSpace.m,
+                      child: RxCard(
+                        padding: const EdgeInsets.all(RxSpace.m + 4),
+                        child: RxMetricGrid(metrics: [
+                          RxMetric(
+                            label: 'Distance',
+                            value: ride.distance.toStringAsFixed(2),
+                            unit: 'km',
+                            icon: CupertinoIcons.map_fill,
+                            iconColor: rx.info,
+                          ),
+                          RxMetric(
+                            label: 'Duration',
+                            value:
+                                formatDuration(ride.durationSeconds.toInt()),
+                            icon: CupertinoIcons.timer,
+                            iconColor: rx.indigo,
+                          ),
+                          RxMetric(
+                            label: 'Average',
+                            value: ride.avgSpeed.toStringAsFixed(0),
+                            unit: 'km/h',
+                            icon: CupertinoIcons.gauge,
+                            iconColor: rx.teal,
+                          ),
+                          RxMetric(
+                            label: 'Top Speed',
+                            value: ride.topSpeed.toStringAsFixed(0),
+                            unit: 'km/h',
+                            icon: CupertinoIcons.bolt_fill,
+                            iconColor: rx.warning,
+                          ),
+                        ]),
+                      ),
+                    ),
+                    RxSliverPadding(
+                      top: RxSpace.m,
+                      child: Wrap(
+                        spacing: 12,
+                        runSpacing: 6,
+                        children: [
+                          for (final b in PolylineEngine.bands)
+                            Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Container(
+                                  width: 10,
+                                  height: 10,
+                                  decoration: BoxDecoration(
+                                      color: b.color, shape: BoxShape.circle),
+                                ),
+                                const SizedBox(width: 4),
+                                Text('${b.label} km/h', style: rx.caption),
+                              ],
+                            ),
+                        ],
+                      ),
+                    ),
+                    RxSliverPadding(
+                      top: RxSpace.l,
+                      child: RxButton.tinted(
+                        label: 'Replay Drive',
+                        icon: CupertinoIcons.play_fill,
+                        onPressed: points.length < 2
+                            ? null
+                            : () => context.push('/drive/ride/$rideId/replay'),
+                      ),
+                    ),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                          height: MediaQuery.paddingOf(context).bottom +
+                              RxSpace.l),
+                    ),
+                  ],
                 ),
-                const SizedBox(height: 10),
-                // Stats Grid
-                GlassContainer(
-                  variant: GlassVariant.mapOverlay,
-                  padding: const EdgeInsets.all(20),
-                  borderRadius: 16,
-                  child: Column(
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _statTile(theme, Icons.straighten, 'DISTANCE',
-                              '${ride.distance.toStringAsFixed(2)} km'),
-                          _statTile(theme, Icons.timer, 'DURATION',
-                              _formatDuration(ride.durationSeconds)),
-                          _statTile(theme, Icons.gps_fixed, 'POINTS',
-                              '${ridePoints.length}'),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceAround,
-                        children: [
-                          _statTile(theme, Icons.speed, 'AVG SPEED',
-                              '${ride.avgSpeed.toStringAsFixed(1)} km/h'),
-                          _statTile(theme, Icons.flash_on, 'TOP SPEED',
-                              '${ride.topSpeed.toStringAsFixed(0)} km/h'),
-                          _statTile(theme, Icons.rotate_left, 'MAX TILT',
-                              '${ride.maxLeanAngle.toStringAsFixed(0)}°'),
-                        ],
-                      ),
-                      if (ride.weatherCondition != null) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          '${ride.temperatureCelsius?.toStringAsFixed(0) ?? '--'}°C • ${ride.weatherCondition}',
-                          style: const TextStyle(
-                              color: AppTheme.textSecondary, fontSize: 13),
+                SafeArea(
+                  child: Padding(
+                    padding: const EdgeInsets.all(RxSpace.s + 4),
+                    child: Row(
+                      children: [
+                        RxMapButton(
+                          icon: CupertinoIcons.chevron_back,
+                          semanticLabel: 'Back',
+                          onPressed: () => context.pop(),
+                        ),
+                        const Spacer(),
+                        RxMapButton(
+                          icon: CupertinoIcons.ellipsis,
+                          semanticLabel: 'More actions',
+                          onPressed: () => _more(context, ref, ride),
                         ),
                       ],
-                    ],
+                    ),
                   ),
                 ),
               ],
             ),
           ),
-        ],
-      ),
+        );
+      },
     );
   }
 
-  Widget _legendDot(Color color, String label) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 10,
-          height: 10,
-          decoration: BoxDecoration(color: color, shape: BoxShape.circle),
+  Marker _endpoint(RidePoint p, Color color, IconData icon) => Marker(
+        point: LatLng(p.latitude, p.longitude),
+        width: 30,
+        height: 30,
+        child: Container(
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(color: const Color(0xFFFFFFFF), width: 2.5),
+            boxShadow: const [
+              BoxShadow(color: Color(0x40000000), blurRadius: 6),
+            ],
+          ),
+          child: Icon(icon, size: 14, color: const Color(0xFFFFFFFF)),
         ),
-        const SizedBox(width: 4),
-        Text(label,
-            style: const TextStyle(
-                color: AppTheme.textSecondary, fontSize: 11)),
-      ],
-    );
-  }
-
-  Widget _statTile(ThemeData theme, IconData icon, String label, String value) {
-    return Column(
-      children: [
-        Icon(icon, color: AppTheme.accent, size: 20),
-        const SizedBox(height: 6),
-        Text(value,
-            style: const TextStyle(
-                fontWeight: FontWeight.bold,
-                fontSize: 15,
-                color: AppTheme.textPrimary)),
-        const SizedBox(height: 2),
-        Text(label,
-            style: const TextStyle(
-                color: AppTheme.textSecondary, fontSize: 10, letterSpacing: 1)),
-      ],
-    );
-  }
+      );
 }

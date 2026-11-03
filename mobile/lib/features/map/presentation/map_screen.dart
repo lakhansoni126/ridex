@@ -1,16 +1,20 @@
 import 'dart:async';
-import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:go_router/go_router.dart';
-import 'package:flutter_map/flutter_map.dart';
-import 'package:latlong2/latlong.dart';
-import 'package:geolocator/geolocator.dart';
-import '../domain/polyline_engine.dart';
-import '../../ride/domain/ride_engine.dart';
-import '../../../core/theme/app_theme.dart';
-import '../../../database/models.dart';
-import '../../../shared/widgets/glass.dart';
 
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show Material, MaterialType;
+import 'package:flutter_map/flutter_map.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:go_router/go_router.dart';
+import 'package:latlong2/latlong.dart';
+
+import '../../../database/models.dart';
+import '../../../services/location_service.dart';
+import '../../../shared/ui/ui.dart';
+import '../../ride/domain/ride_engine.dart';
+import '../domain/polyline_engine.dart';
+
+/// Full-screen map: your position, and the live route while recording.
 class MapScreen extends ConsumerStatefulWidget {
   const MapScreen({super.key});
 
@@ -19,11 +23,13 @@ class MapScreen extends ConsumerStatefulWidget {
 }
 
 class _MapScreenState extends ConsumerState<MapScreen> {
-  final MapController _mapController = MapController();
-  StreamSubscription<Position>? _positionStream;
-  LatLng? _currentLocation;
-  bool _mapReady = false;
-  bool _autoFollow = true;
+  final _map = MapController();
+  StreamSubscription<Position>? _sub;
+  LatLng? _me;
+  double? _heading;
+  bool _ready = false;
+  bool _follow = true;
+  String? _problem;
 
   @override
   void initState() {
@@ -31,169 +37,171 @@ class _MapScreenState extends ConsumerState<MapScreen> {
     _initLocation();
   }
 
-  void _initLocation() async {
-    try {
-      // Check permissions
-      LocationPermission permission = await Geolocator.checkPermission();
-      if (permission == LocationPermission.denied) {
-        permission = await Geolocator.requestPermission();
+  Future<void> _initLocation() async {
+    final service = LocationService();
+    if (!await service.requestPermissions()) {
+      if (mounted) {
+        setState(() => _problem = 'Location access is off. Allow it to see where you are.');
       }
-      if (permission == LocationPermission.denied || permission == LocationPermission.deniedForever) {
-        debugPrint('MapScreen: Location permission denied');
-        return;
-      }
+      return;
+    }
+    final last = await Geolocator.getLastKnownPosition();
+    if (last != null) _update(last, initial: true);
+    final fresh = await service.getCurrentPosition();
+    if (fresh != null) _update(fresh, initial: last == null);
+    _sub = Geolocator.getPositionStream(
+      locationSettings: const LocationSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 5,
+      ),
+    ).listen(_update, onError: (_) {});
+  }
 
-      // Get one-shot position first
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          desiredAccuracy: LocationAccuracy.high,
-          timeLimit: const Duration(seconds: 10),
-        );
-        debugPrint('MapScreen: Initial fix: ${pos.latitude}, ${pos.longitude}');
-        if (mounted) {
-          setState(() {
-            _currentLocation = LatLng(pos.latitude, pos.longitude);
-          });
-          if (_mapReady) {
-            _mapController.move(_currentLocation!, 16.0);
-          }
-        }
-      } catch (e) {
-        debugPrint('MapScreen: Initial fix failed: $e');
-      }
-
-      // Start continuous updates
-      _positionStream = Geolocator.getPositionStream(
-        locationSettings: const LocationSettings(
-          accuracy: LocationAccuracy.high,
-          distanceFilter: 0, // Get ALL updates
-        ),
-      ).listen(
-        (Position position) {
-          if (mounted) {
-            final newLoc = LatLng(position.latitude, position.longitude);
-            setState(() {
-              _currentLocation = newLoc;
-            });
-            if (_autoFollow && _mapReady) {
-              _mapController.move(newLoc, _mapController.camera.zoom);
-            }
-          }
-        },
-        onError: (e) {
-          debugPrint('MapScreen: GPS stream error: $e');
-        },
-      );
-    } catch (e) {
-      debugPrint('MapScreen: Failed to init location: $e');
+  void _update(Position p, {bool initial = false}) {
+    if (!mounted) return;
+    final loc = LatLng(p.latitude, p.longitude);
+    setState(() {
+      _me = loc;
+      _heading = p.heading.isNaN || p.heading < 0 ? null : p.heading;
+    });
+    if (_ready && (_follow || initial)) {
+      _map.move(loc, initial ? 16 : _map.camera.zoom);
     }
   }
 
   @override
   void dispose() {
-    _positionStream?.cancel();
-    _mapController.dispose();
+    _sub?.cancel();
+    _map.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) {
-    final rideState = ref.watch(rideEngineProvider);
+    final rx = context.rx;
+    final ride = ref.watch(rideEngineProvider);
+    final route = [
+      for (final p in ride.routePoints)
+        RidePoint()
+          ..latitude = p.latitude
+          ..longitude = p.longitude
+          ..speed = p.speed * 3.6,
+    ];
+    final polylines = PolylineEngine.generateHeatmap(route);
+    final marker = ride.isRecording && ride.lastPosition != null
+        ? LatLng(ride.lastPosition!.latitude, ride.lastPosition!.longitude)
+        : _me;
 
-    // Build polylines from ride route
-    final ridePoints = rideState.routePoints.map((p) => RidePoint()
-      ..latitude = p.latitude
-      ..longitude = p.longitude
-      ..speed = p.speed * 3.6
-    ).toList();
-    final polylines = PolylineEngine.generateHeatmap(ridePoints);
-
-    // Blue dot: use ride engine position when recording, else map's own GPS
-    LatLng? markerPos;
-    if (rideState.isRecording && rideState.lastPosition != null) {
-      markerPos = LatLng(rideState.lastPosition!.latitude, rideState.lastPosition!.longitude);
-    } else {
-      markerPos = _currentLocation;
-    }
-
-    // Default center: India
-    final initialCenter = _currentLocation ?? const LatLng(20.5937, 78.9629);
-
-    return Scaffold(
-      backgroundColor: AppTheme.background,
-      extendBodyBehindAppBar: true,
-      appBar: GlassAppBar(
-        title: rideState.isRecording ? 'Live Map' : 'Map',
-        centerTitle: true,
-      ),
-      floatingActionButton: FloatingActionButton(
-        onPressed: () {
-          setState(() { _autoFollow = true; });
-          final target = markerPos ?? _currentLocation;
-          if (target != null && _mapReady) {
-            _mapController.move(target, 16.0);
-          }
-        },
-        child: Icon(Icons.my_location,
-            color: _autoFollow
-                ? AppTheme.textPrimary
-                : AppTheme.textSecondary),
-      ),
-      body: FlutterMap(
-        mapController: _mapController,
-        options: MapOptions(
-          initialCenter: initialCenter,
-          initialZoom: _currentLocation != null ? 16.0 : 5.0,
-          onPositionChanged: (position, hasGesture) {
-            if (hasGesture && _autoFollow) {
-              setState(() { _autoFollow = false; });
-            }
-          },
-          onMapReady: () {
-            setState(() { _mapReady = true; });
-            if (_currentLocation != null) {
-              _mapController.move(_currentLocation!, 16.0);
-            }
-          },
-        ),
-        children: [
-          TileLayer(
-            urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-            userAgentPackageName: 'com.example.ridex',
-            tileBuilder: (context, tileWidget, tile) {
-              return ColorFiltered(
-                colorFilter: const ColorFilter.matrix([
-                  -1,  0,  0, 0, 255,
-                   0, -1,  0, 0, 255,
-                   0,  0, -1, 0, 255,
-                   0,  0,  0, 1,   0,
-                ]),
-                child: tileWidget,
-              );
-            },
-          ),
-          if (polylines.isNotEmpty)
-            PolylineLayer(polylines: polylines),
-          if (markerPos != null)
-            MarkerLayer(
-              markers: [
-                Marker(
-                  point: markerPos,
-                  width: 30,
-                  height: 30,
-                  child: Container(
-                    decoration: BoxDecoration(
-                      color: AppTheme.accent.withOpacity(0.3),
-                      shape: BoxShape.circle,
-                      border: Border.all(color: AppTheme.accent, width: 2),
+    return CupertinoPageScaffold(
+      backgroundColor: rx.background,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Stack(
+          children: [
+            FlutterMap(
+              mapController: _map,
+              options: MapOptions(
+                initialCenter: _me ?? const LatLng(20.5937, 78.9629),
+                initialZoom: _me != null ? 16 : 4,
+                onMapReady: () {
+                  _ready = true;
+                  if (_me != null) _map.move(_me!, 16);
+                },
+                onPositionChanged: (_, hasGesture) {
+                  if (hasGesture && _follow) setState(() => _follow = false);
+                },
+              ),
+              children: [
+                const RxTileLayer(),
+                if (polylines.isNotEmpty) PolylineLayer(polylines: polylines),
+                if (marker != null)
+                  MarkerLayer(markers: [
+                    Marker(
+                      point: marker,
+                      width: 26,
+                      height: 26,
+                      child: _UserDot(heading: _heading),
                     ),
-                    child: const Center(
-                      child: Icon(Icons.circle, color: AppTheme.accent, size: 14),
-                    ),
-                  ),
-                ),
+                  ]),
+                const RxMapAttribution(),
               ],
             ),
+            SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.all(RxSpace.s + 4),
+                child: Column(
+                  children: [
+                    Row(
+                      children: [
+                        RxMapButton(
+                          icon: CupertinoIcons.xmark,
+                          semanticLabel: 'Close map',
+                          onPressed: () => context.pop(),
+                        ),
+                        const Spacer(),
+                        if (ride.isRecording)
+                          RxPill(
+                            label:
+                                '${ride.currentSpeed.toStringAsFixed(0)} km/h · ${ride.distance.toStringAsFixed(1)} km',
+                            color: rx.destructive,
+                            icon: CupertinoIcons.circle_fill,
+                            filled: true,
+                          ),
+                        const Spacer(),
+                        RxMapButton(
+                          icon: _follow
+                              ? CupertinoIcons.location_fill
+                              : CupertinoIcons.location,
+                          semanticLabel: 'Centre on my location',
+                          active: _follow,
+                          onPressed: () {
+                            setState(() => _follow = true);
+                            if (marker != null) _map.move(marker, 16);
+                          },
+                        ),
+                      ],
+                    ),
+                    if (_problem != null) ...[
+                      const SizedBox(height: RxSpace.m),
+                      RxCard(
+                        onTap: () => Geolocator.openAppSettings(),
+                        child: Row(
+                          children: [
+                            Icon(CupertinoIcons.location_slash_fill,
+                                color: rx.warning),
+                            const SizedBox(width: RxSpace.s),
+                            Expanded(
+                                child: Text(_problem!, style: rx.subheadline)),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _UserDot extends StatelessWidget {
+  const _UserDot({this.heading});
+
+  final double? heading;
+
+  @override
+  Widget build(BuildContext context) {
+    final rx = context.rx;
+    return Container(
+      decoration: BoxDecoration(
+        color: rx.info,
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xFFFFFFFF), width: 3),
+        boxShadow: [
+          BoxShadow(color: rx.info.withOpacity(0.35), blurRadius: 12, spreadRadius: 4),
         ],
       ),
     );

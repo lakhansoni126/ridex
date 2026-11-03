@@ -21,8 +21,8 @@ class WeatherService {
       if (response.statusCode == 200) {
         final data = jsonDecode(response.body);
         final currentWeather = data['current_weather'];
-        final temp = currentWeather['temperature'] as double;
-        final weatherCode = currentWeather['weathercode'] as int;
+        final temp = (currentWeather['temperature'] as num).toDouble();
+        final weatherCode = (currentWeather['weathercode'] as num).toInt();
         
         return WeatherData(
           temperature: temp,
@@ -30,9 +30,7 @@ class WeatherService {
         );
       }
     } catch (e) {
-      if (kDebugMode) {
-        print('Error fetching weather: $e');
-      }
+      debugPrint('Error fetching weather: $e');
     }
     return null;
   }
