@@ -42,7 +42,7 @@ class HistoryScreen extends ConsumerWidget {
                 children: [
                   Icon(Icons.directions_car,
                       size: 64,
-                      color: AppTheme.textPrimary.withValues(alpha: 0.2)),
+                      color: AppTheme.textPrimary.withOpacity(0.2)),
                   const SizedBox(height: 16),
                   const Text('No rides recorded yet.',
                       style: TextStyle(
@@ -50,7 +50,7 @@ class HistoryScreen extends ConsumerWidget {
                   const SizedBox(height: 8),
                   Text('Start a ride to see your history here.',
                       style: TextStyle(
-                          color: AppTheme.textSecondary.withValues(alpha: 0.7),
+                          color: AppTheme.textSecondary.withOpacity(0.7),
                           fontSize: 13)),
                 ],
               ),
@@ -100,7 +100,7 @@ class HistoryScreen extends ConsumerWidget {
                                 decoration: BoxDecoration(
                                   color: pointCount > 0
                                       ? Colors.greenAccent
-                                          .withValues(alpha: 0.15)
+                                          .withOpacity(0.15)
                                       : AppTheme.accentSoft,
                                   borderRadius: BorderRadius.circular(8),
                                 ),
@@ -155,12 +155,12 @@ class HistoryScreen extends ConsumerWidget {
                         children: [
                           Text('Tap to view route',
                               style: TextStyle(
-                                  color: AppTheme.accent.withValues(alpha: 0.8),
+                                  color: AppTheme.accent.withOpacity(0.8),
                                   fontSize: 11,
                                   letterSpacing: 0.5)),
                           const SizedBox(width: 4),
                           Icon(Icons.chevron_right,
-                              color: AppTheme.accent.withValues(alpha: 0.8),
+                              color: AppTheme.accent.withOpacity(0.8),
                               size: 16),
                         ],
                       ),

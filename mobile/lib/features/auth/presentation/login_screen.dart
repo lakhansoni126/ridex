@@ -52,10 +52,10 @@ class _LoginScreenState extends ConsumerState<LoginScreen> {
                 decoration: BoxDecoration(
                   color: AppTheme.accentSoft,
                   borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: AppTheme.accent.withValues(alpha: 0.4)),
+                  border: Border.all(color: AppTheme.accent.withOpacity(0.4)),
                 ),
                 child: Text(
-                  'RIDE COMMUNITY',
+                  'GLASS UI · v1.1',
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: AppTheme.accent,
                     letterSpacing: 1.4,

@@ -78,7 +78,7 @@ class GlassNavChip extends StatelessWidget {
           decoration: selected
               ? BoxDecoration(
                   borderRadius: BorderRadius.circular(16),
-                  border: Border.all(color: AppTheme.accent.withValues(alpha: 0.55)),
+                  border: Border.all(color: AppTheme.accent.withOpacity(0.55)),
                   color: AppTheme.accentSoft,
                 )
               : null,

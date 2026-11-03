@@ -2,7 +2,7 @@ name: ridex
 description: RideX — a premium automobile community and group-ride app.
 publish_to: 'none'
 
-version: 1.0.0+1
+version: 1.1.0+11
 
 environment:
   sdk: '>=3.0.0 <4.0.0'
@@ -81,10 +81,10 @@ flutter_launcher_icons:
   remove_alpha_ios: true
 
 flutter_native_splash:
-  color: "#0F0F11"
+  color: "#0A0A0B"
   image: assets/branding/exports/ridex-icon-1024.png
   android: true
   ios: true
   android_12:
-    color: "#0F0F11"
+    color: "#0A0A0B"
     image: assets/branding/exports/ridex-icon-1024.png

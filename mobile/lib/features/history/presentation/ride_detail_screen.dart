@@ -127,12 +127,12 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
         height: 36,
         child: Container(
           decoration: BoxDecoration(
-            color: Colors.greenAccent.withValues(alpha: 0.9),
+            color: Colors.greenAccent.withOpacity(0.9),
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: Colors.greenAccent.withValues(alpha: 0.4),
+                color: Colors.greenAccent.withOpacity(0.4),
                 blurRadius: 8,
                 spreadRadius: 2,
               ),
@@ -149,12 +149,12 @@ class _RideDetailScreenState extends ConsumerState<RideDetailScreen> {
         height: 36,
         child: Container(
           decoration: BoxDecoration(
-            color: AppTheme.accent.withValues(alpha: 0.9),
+            color: AppTheme.accent.withOpacity(0.9),
             shape: BoxShape.circle,
             border: Border.all(color: Colors.white, width: 2),
             boxShadow: [
               BoxShadow(
-                color: AppTheme.accent.withValues(alpha: 0.4),
+                color: AppTheme.accent.withOpacity(0.4),
                 blurRadius: 8,
                 spreadRadius: 2,
               ),

@@ -20,7 +20,9 @@ mobile/**/*.g.dart
 mobile/**/*.freezed.dart
 # Keep intentional: regenerate via build_runner in CI / local
 
-# Android / iOS (generated when platforms are created)
+# Android / iOS (generated when platforms are created in CI / flutter create)
+mobile/android/
+mobile/ios/
 mobile/android/.gradle/
 mobile/ios/Pods/
 mobile/ios/.symlinks/

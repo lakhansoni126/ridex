@@ -44,7 +44,9 @@ def _inject_android_signing(app_gradle: Path) -> None:
 def ridexKeystoreProperties = new Properties()
 def ridexKeystorePropertiesFile = rootProject.file('app/key.properties')
 if (ridexKeystorePropertiesFile.exists()) {
-    ridexKeystoreProperties.load(new FileInputStream(ridexKeystorePropertiesFile))
+    ridexKeystorePropertiesFile.withInputStream { stream ->
+        ridexKeystoreProperties.load(stream)
+    }
 }
 """
 
@@ -193,9 +195,6 @@ def _inject_android_signing_kts(app_gradle_kts: Path) -> None:
     )
 
     text = app_gradle_kts.read_text(encoding="utf-8")
-    if "ridex-release.p12" in text and "signingConfigs" in text:
-        print("kts signing already present")
-        return
 
     preamble = """
 import java.util.Properties
@@ -214,23 +213,48 @@ if (ridexKeystorePropertiesFile.exists()) {
     signing_block = """
     signingConfigs {
         create("release") {
-            keyAlias = ridexKeystoreProperties["keyAlias"] as String?
-            keyPassword = ridexKeystoreProperties["keyPassword"] as String?
-            storeFile = ridexKeystoreProperties["storeFile"]?.let { file(it as String) }
-            storePassword = ridexKeystoreProperties["storePassword"] as String?
+            keyAlias = ridexKeystoreProperties["keyAlias"] as String
+            keyPassword = ridexKeystoreProperties["keyPassword"] as String
+            storeFile = file(ridexKeystoreProperties["storeFile"] as String)
+            storePassword = ridexKeystoreProperties["storePassword"] as String
         }
     }
 """
-    if "signingConfigs" not in text:
-        text = re.sub(r"(android\s*\{)", r"\1\n" + signing_block, text, count=1)
+    # Detect a real signingConfigs { ... } block, not just getByName("…")
+    if "create(\"release\")" not in text and "create('release')" not in text:
+        if re.search(r"android\s*\{", text):
+            text = re.sub(
+                r"(android\s*\{)",
+                r"\1\n" + signing_block,
+                text,
+                count=1,
+            )
+        else:
+            print("warn: no android { block in build.gradle.kts")
 
-    if "signingConfig = signingConfigs.getByName(\"release\")" not in text:
-        text = re.sub(
-            r"(release\s*\{)",
-            r'\1\n            signingConfig = signingConfigs.getByName("release")',
-            text,
-            count=1,
-        )
+    # Normalize the release buildType to a single release signingConfig line.
+    text = re.sub(
+        r"[ \t]*// TODO: Add your own signing config for the release build\.\n"
+        r"[ \t]*// Signing with the debug keys for now.*\n",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"[ \t]*signingConfig\s*=\s*signingConfigs\.getByName\(\"(?:debug|release)\"\)\s*\n?",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"[ \t]*signingConfig\s*=\s*signingConfigs\.getByName\('(?:debug|release)'\)\s*\n?",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(buildTypes\s*\{[\s\S]*?release\s*\{)",
+        r'\1\n            signingConfig = signingConfigs.getByName("release")',
+        text,
+        count=1,
+    )
 
     app_gradle_kts.write_text(text, encoding="utf-8")
     print(f"patched signing -> {app_gradle_kts.relative_to(ROOT)}")

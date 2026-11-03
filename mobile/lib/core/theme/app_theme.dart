@@ -122,10 +122,10 @@ class AppTheme {
         style: ElevatedButton.styleFrom(
           backgroundColor: accent,
           foregroundColor: textPrimary,
-          disabledBackgroundColor: accent.withValues(alpha: 0.35),
-          disabledForegroundColor: textPrimary.withValues(alpha: 0.7),
+          disabledBackgroundColor: accent.withOpacity(0.35),
+          disabledForegroundColor: textPrimary.withOpacity(0.7),
           elevation: 0,
-          shadowColor: accent.withValues(alpha: 0.45),
+          shadowColor: accent.withOpacity(0.45),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
           padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 28),
           textStyle: GoogleFonts.spaceGrotesk(
@@ -155,7 +155,7 @@ class AppTheme {
         enabledBorder: InputBorder.none,
         focusedBorder: InputBorder.none,
         labelStyle: const TextStyle(color: textSecondary),
-        hintStyle: TextStyle(color: textSecondary.withValues(alpha: 0.7)),
+        hintStyle: TextStyle(color: textSecondary.withOpacity(0.7)),
       ),
       chipTheme: ChipThemeData(
         backgroundColor: glass,
@@ -180,14 +180,6 @@ class AppTheme {
         backgroundColor: accent,
         foregroundColor: textPrimary,
         elevation: 0,
-      ),
-      cardTheme: CardThemeData(
-        color: glass,
-        elevation: 0,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-          side: const BorderSide(color: glassBorder),
-        ),
       ),
       progressIndicatorTheme: const ProgressIndicatorThemeData(color: accent),
       iconTheme: const IconThemeData(color: textPrimary),

@@ -30,7 +30,7 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
           decoration: BoxDecoration(
             color: AppTheme.glassIntense,
             border: Border(
-              bottom: BorderSide(color: AppTheme.glassBorder.withValues(alpha: 0.6)),
+              bottom: BorderSide(color: AppTheme.glassBorder.withOpacity(0.6)),
             ),
           ),
           child: AppBar(

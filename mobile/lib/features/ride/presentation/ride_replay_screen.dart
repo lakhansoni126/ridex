@@ -113,7 +113,7 @@ class _RideReplayScreenState extends State<RideReplayScreen> {
                                   dotData: const FlDotData(show: false),
                                   belowBarData: BarAreaData(
                                     show: true,
-                                    color: AppTheme.accent.withValues(alpha: 0.2),
+                                    color: AppTheme.accent.withOpacity(0.2),
                                   ),
                                 ),
                               ],

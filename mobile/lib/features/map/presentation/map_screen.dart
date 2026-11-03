@@ -183,7 +183,7 @@ class _MapScreenState extends ConsumerState<MapScreen> {
                   height: 30,
                   child: Container(
                     decoration: BoxDecoration(
-                      color: AppTheme.accent.withValues(alpha: 0.3),
+                      color: AppTheme.accent.withOpacity(0.3),
                       shape: BoxShape.circle,
                       border: Border.all(color: AppTheme.accent, width: 2),
                     ),

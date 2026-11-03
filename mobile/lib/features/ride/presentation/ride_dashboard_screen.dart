@@ -104,13 +104,13 @@ class _RideDashboardScreenState extends ConsumerState<RideDashboardScreen> {
                   padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                   decoration: BoxDecoration(
                     color: rideState.isPaused
-                        ? Colors.orange.withValues(alpha: 0.2)
+                        ? Colors.orange.withOpacity(0.2)
                         : AppTheme.accentSoft,
                     borderRadius: BorderRadius.circular(20),
                     border: Border.all(
                       color: rideState.isPaused
-                          ? Colors.orange.withValues(alpha: 0.5)
-                          : AppTheme.accent.withValues(alpha: 0.5),
+                          ? Colors.orange.withOpacity(0.5)
+                          : AppTheme.accent.withOpacity(0.5),
                     ),
                   ),
                   child: Row(

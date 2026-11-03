@@ -71,7 +71,6 @@ jobs:
 
       - name: Harden Android Gradle (Isar / SDK)
         run: |
-          # Root build.gradle — namespace + compileSdk for older plugins (Isar)
           if [ -f android/build.gradle ]; then
             cat >> android/build.gradle <<'EOF'
 
@@ -90,19 +89,41 @@ jobs:
           EOF
           fi
 
-          # app/build.gradle — ensure minSdk high enough for geolocator / FGS
-          APP_GRADLE="android/app/build.gradle"
-          if [ -f "$APP_GRADLE" ]; then
-            if grep -q "minSdkVersion" "$APP_GRADLE"; then
-              sed -i 's/minSdkVersion .*/minSdkVersion 24/' "$APP_GRADLE"
-            elif grep -q "minSdk " "$APP_GRADLE"; then
-              sed -i 's/minSdk .*/minSdk 24/' "$APP_GRADLE"
-            fi
-            if grep -q "compileSdk" "$APP_GRADLE"; then
+          for APP_GRADLE in android/app/build.gradle android/app/build.gradle.kts; do
+            if [ -f "$APP_GRADLE" ]; then
+              if grep -q "minSdkVersion" "$APP_GRADLE"; then
+                sed -i 's/minSdkVersion .*/minSdkVersion 24/' "$APP_GRADLE"
+              elif grep -q "minSdk " "$APP_GRADLE"; then
+                sed -i 's/minSdk .*/minSdk 24/' "$APP_GRADLE"
+              fi
               sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 35/' "$APP_GRADLE" || true
+              sed -i 's/compileSdk = [0-9]\+/compileSdk = 35/' "$APP_GRADLE" || true
               sed -i 's/compileSdk [0-9]\+/compileSdk 35/' "$APP_GRADLE" || true
+              # Flutter 3.x templates default minSdk via flutter.minSdkVersion; force 24
+              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' "$APP_GRADLE" || true
+            fi
+          done
+
+      - name: Re-apply RideX signing + manifest patches
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/patch_mobile_native.py
+
+      - name: Prove release signing config is wired
+        run: |
+          set -e
+          test -f android/app/ridex-release.p12
+          test -f android/app/key.properties
+          if [ -f android/app/build.gradle.kts ]; then
+            grep -q 'create("release")' android/app/build.gradle.kts
+            grep -q 'signingConfigs.getByName("release")' android/app/build.gradle.kts
+            if grep -q 'getByName("debug")' android/app/build.gradle.kts; then
+              echo "ERROR: release build still references debug signing"
+              grep -n 'signingConfig' android/app/build.gradle.kts
+              exit 1
             fi
           fi
+          echo "Signing config OK"
+          sed -n '1,120p' android/app/build.gradle.kts || sed -n '1,120p' android/app/build.gradle
 
       - name: Codegen (Isar / Freezed)
         run: dart run build_runner build --delete-conflicting-outputs
@@ -118,6 +139,25 @@ jobs:
           flutter build apk --release --no-tree-shake-icons
           --dart-define=API_BASE_URL=https://130.210.24.87.sslip.io
 
+      - name: Verify release signature (not debug)
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          APK="$(find mobile/build/app/outputs -name '*.apk' -type f | head -n 1)"
+          echo "APK=$APK"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER=$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK" | tee /tmp/apk-certs.txt
+            if grep -qi "Android Debug" /tmp/apk-certs.txt; then
+              echo "ERROR: APK still signed with Android debug key"
+              exit 1
+            fi
+          fi
+          echo "Signature verification done"
+
       - name: Stage APK
         working-directory: ${{ github.workspace }}
         run: |
@@ -128,12 +168,12 @@ jobs:
             find mobile/build -name '*.apk' -type f || true
             exit 1
           fi
-          cp "$APK" /tmp/output_apk/app-release.apk
-          ls -lh /tmp/output_apk/app-release.apk
+          cp "$APK" /tmp/output_apk/RideX-v1.1-glass.apk
+          ls -lh /tmp/output_apk/RideX-v1.1-glass.apk
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ridex-release-apk
-          path: /tmp/output_apk/app-release.apk
+          name: ridex-release-apk-v1-1-glass
+          path: /tmp/output_apk/RideX-v1.1-glass.apk
           if-no-files-found: error
           retention-days: 14

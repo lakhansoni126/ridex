@@ -67,10 +67,8 @@ class HomeDashboardScreen extends ConsumerWidget {
           Text(
             'RideX',
             style: theme.textTheme.displayMedium?.copyWith(
-              foreground: Paint()
-                ..shader = const LinearGradient(
-                  colors: [AppTheme.textPrimary, Color(0xFFFF6B63)],
-                ).createShader(const Rect.fromLTWH(0, 0, 220, 70)),
+              color: AppTheme.textPrimary,
+              fontWeight: FontWeight.w700,
             ),
           ),
           const SizedBox(height: 8),
@@ -134,7 +132,7 @@ class HomeDashboardScreen extends ConsumerWidget {
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: AppTheme.accent.withValues(alpha: 0.45),
+                        color: AppTheme.accent.withOpacity(0.45),
                         blurRadius: 36,
                         spreadRadius: 2,
                       ),
