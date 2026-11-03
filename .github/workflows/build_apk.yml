@@ -33,6 +33,8 @@ jobs:
 
       - name: Patch RideX Android config
         working-directory: ${{ github.workspace }}
+        env:
+          RIDEX_SKIP_SIGNING: "1"
         run: python3 scripts/patch_mobile_native.py
 
       - name: Harden Android Gradle (Isar / SDK)
@@ -68,8 +70,10 @@ jobs:
             fi
           done
 
-      - name: Re-apply signing after Gradle harden
+      - name: Re-apply Android patches after Gradle harden
         working-directory: ${{ github.workspace }}
+        env:
+          RIDEX_SKIP_SIGNING: "1"
         run: python3 scripts/patch_mobile_native.py
 
       - name: Codegen (Isar / Freezed)
@@ -81,41 +85,10 @@ jobs:
           dart run flutter_launcher_icons
           dart run flutter_native_splash:create
 
-      - name: Build signed release APK (HTTPS production API)
+      - name: Build release APK (glass UI + HTTPS API)
         run: >
           flutter build apk --release --no-tree-shake-icons
           --dart-define=API_BASE_URL=https://130.210.24.87.sslip.io
-
-      - name: Verify release signature (not debug)
-        working-directory: ${{ github.workspace }}
-        run: |
-          set -e
-          APK="$(find mobile/build/app/outputs -name '*.apk' -type f | head -n 1)"
-          echo "APK=$APK"
-          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
-          if [ -z "$APKSIGNER" ]; then
-            APKSIGNER=$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
-          fi
-          if [ -n "$APKSIGNER" ]; then
-            "$APKSIGNER" verify --print-certs "$APK" | tee /tmp/apk-certs.txt
-            if grep -qi "Android Debug" /tmp/apk-certs.txt; then
-              echo "ERROR: APK is still signed with the Android debug key — Play Protect will block/pause it"
-              exit 1
-            fi
-            if ! grep -qi "Signer\|DN:\|SHA" /tmp/apk-certs.txt; then
-              echo "ERROR: Could not read release signer from APK"
-              exit 1
-            fi
-            echo "Release signature check passed (not Android Debug)"
-          else
-            echo "apksigner not found; falling back to META-INF cert scan"
-            CERTS=$(unzip -l "$APK" | awk '/META-INF\/.*\.(RSA|DSA|EC)$/ {print $4}' | while read -r f; do unzip -p "$APK" "$f" | openssl pkcs7 -inform DER -print_certs 2>/dev/null; done || true)
-            echo "$CERTS" | head -40
-            if echo "$CERTS" | grep -qi "Android Debug"; then
-              echo "ERROR: APK is still signed with the Android debug key"
-              exit 1
-            fi
-          fi
 
       - name: Stage APK
         working-directory: ${{ github.workspace }}

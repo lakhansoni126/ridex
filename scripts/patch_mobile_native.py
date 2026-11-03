@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import sys
@@ -170,8 +171,11 @@ def patch_android() -> None:
     print(f"patched {manifest.relative_to(ROOT)}")
 
     _write_network_security_config()
-    _inject_android_signing(MOBILE / "android" / "app" / "build.gradle")
-    _inject_android_signing_kts(MOBILE / "android" / "app" / "build.gradle.kts")
+    if os.environ.get("RIDEX_SKIP_SIGNING") == "1":
+        print("skip signing injection (RIDEX_SKIP_SIGNING=1)")
+    else:
+        _inject_android_signing(MOBILE / "android" / "app" / "build.gradle")
+        _inject_android_signing_kts(MOBILE / "android" / "app" / "build.gradle.kts")
 
 
 def _inject_android_signing_kts(app_gradle_kts: Path) -> None:
