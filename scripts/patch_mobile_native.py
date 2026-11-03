@@ -1,14 +1,122 @@
 #!/usr/bin/env python3
-"""Patch Android/iOS native projects for RideX location, branding, cleartext LAN."""
+"""Patch Android/iOS native projects for RideX location, branding, signing, HTTPS."""
 
 from __future__ import annotations
 
 import re
+import shutil
 import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 MOBILE = ROOT / "mobile"
+SIGNING = MOBILE / "signing"
+
+
+def _inject_android_signing(app_gradle: Path) -> None:
+    """Configure release signing with the committed RideX keystore (sideload-safe)."""
+    if not app_gradle.exists():
+        print("skip signing: app/build.gradle missing")
+        return
+
+    android_app = app_gradle.parent
+    keystore_src = SIGNING / "ridex-release.p12"
+    props_src = SIGNING / "key.properties"
+    if not keystore_src.exists() or not props_src.exists():
+        print("skip signing: mobile/signing keystore/properties missing")
+        return
+
+    shutil.copy2(keystore_src, android_app / "ridex-release.p12")
+    (android_app / "key.properties").write_text(
+        "storePassword=RideXRelease2026!\n"
+        "keyPassword=RideXRelease2026!\n"
+        "keyAlias=ridex\n"
+        "storeFile=ridex-release.p12\n",
+        encoding="utf-8",
+    )
+
+    text = app_gradle.read_text(encoding="utf-8")
+    if "ridex-release.p12" in text and "signingConfigs" in text:
+        print("signing already present in app/build.gradle")
+        return
+
+    signing_block = """
+def ridexKeystoreProperties = new Properties()
+def ridexKeystorePropertiesFile = rootProject.file('app/key.properties')
+if (ridexKeystorePropertiesFile.exists()) {
+    ridexKeystoreProperties.load(new FileInputStream(ridexKeystorePropertiesFile))
+}
+"""
+
+    if "ridexKeystoreProperties" not in text:
+        # Insert after first `plugins {` / `def localProperties` / beginning of plugins section
+        if "def localProperties = new Properties()" in text:
+            text = text.replace(
+                "def localProperties = new Properties()",
+                signing_block + "\ndef localProperties = new Properties()",
+                1,
+            )
+        else:
+            text = signing_block + "\n" + text
+
+    android_signing = """
+    signingConfigs {
+        release {
+            keyAlias ridexKeystoreProperties['keyAlias']
+            keyPassword ridexKeystoreProperties['keyPassword']
+            storeFile ridexKeystoreProperties['storeFile'] ? file(ridexKeystoreProperties['storeFile']) : null
+            storePassword ridexKeystoreProperties['storePassword']
+        }
+    }
+"""
+
+    if "signingConfigs" not in text:
+        text = re.sub(
+            r"(android\s*\{)",
+            r"\1\n" + android_signing,
+            text,
+            count=1,
+        )
+
+    # Force release buildType to use release signing
+    if re.search(r"buildTypes\s*\{[\s\S]*?release\s*\{", text):
+        if "signingConfig signingConfigs.release" not in text:
+            text = re.sub(
+                r"(release\s*\{)",
+                r"\1\n            signingConfig signingConfigs.release",
+                text,
+                count=1,
+            )
+    else:
+        text = re.sub(
+            r"(android\s*\{)",
+            r"\1\n    buildTypes {\n        release {\n            signingConfig signingConfigs.release\n        }\n    }\n",
+            text,
+            count=1,
+        )
+
+    app_gradle.write_text(text, encoding="utf-8")
+    print(f"patched signing -> {app_gradle.relative_to(ROOT)}")
+
+
+def _write_network_security_config() -> None:
+    xml_dir = MOBILE / "android" / "app" / "src" / "main" / "res" / "xml"
+    xml_dir.mkdir(parents=True, exist_ok=True)
+    cfg = xml_dir / "network_security_config.xml"
+    cfg.write_text(
+        """<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Production API is HTTPS. No cleartext to arbitrary hosts. -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
+""",
+        encoding="utf-8",
+    )
+    print(f"wrote {cfg.relative_to(ROOT)}")
 
 
 def patch_android() -> None:
@@ -20,11 +128,16 @@ def patch_android() -> None:
     text = manifest.read_text(encoding="utf-8")
     text = re.sub(r'android:label="[^"]+"', 'android:label="RideX"', text, count=1)
 
-    # Allow http://LAN for local API testing
-    if "android:usesCleartextTraffic" not in text:
+    # Prefer HTTPS-only network security (Play Protect / sideload hygiene)
+    text = re.sub(
+        r'\s*android:usesCleartextTraffic="[^"]*"',
+        "",
+        text,
+    )
+    if "android:networkSecurityConfig" not in text:
         text = text.replace(
             "<application",
-            '<application android:usesCleartextTraffic="true"',
+            '<application android:networkSecurityConfig="@xml/network_security_config"',
             1,
         )
 
@@ -43,8 +156,84 @@ def patch_android() -> None:
         block = "\n".join(f'    <uses-permission android:name="{p}" />' for p in missing)
         text = text.replace("<application", f"{block}\n    <application", 1)
 
+    # Ensure any existing service can declare location FGS type if present
+    if "android:foregroundServiceType" not in text and "<service" in text:
+        text = text.replace(
+            "<service",
+            '<service android:foregroundServiceType="location"',
+            1,
+        )
+
     manifest.write_text(text, encoding="utf-8")
     print(f"patched {manifest.relative_to(ROOT)}")
+
+    _write_network_security_config()
+    _inject_android_signing(MOBILE / "android" / "app" / "build.gradle")
+    _inject_android_signing_kts(MOBILE / "android" / "app" / "build.gradle.kts")
+
+
+def _inject_android_signing_kts(app_gradle_kts: Path) -> None:
+    """Configure release signing for Kotlin DSL app/build.gradle.kts."""
+    if not app_gradle_kts.exists():
+        return
+
+    android_app = app_gradle_kts.parent
+    keystore_src = SIGNING / "ridex-release.p12"
+    if not keystore_src.exists():
+        print("skip kts signing: keystore missing")
+        return
+
+    shutil.copy2(keystore_src, android_app / "ridex-release.p12")
+    (android_app / "key.properties").write_text(
+        "storePassword=RideXRelease2026!\n"
+        "keyPassword=RideXRelease2026!\n"
+        "keyAlias=ridex\n"
+        "storeFile=ridex-release.p12\n",
+        encoding="utf-8",
+    )
+
+    text = app_gradle_kts.read_text(encoding="utf-8")
+    if "ridex-release.p12" in text and "signingConfigs" in text:
+        print("kts signing already present")
+        return
+
+    preamble = """
+import java.util.Properties
+import java.io.FileInputStream
+
+val ridexKeystoreProperties = Properties()
+val ridexKeystorePropertiesFile = rootProject.file("app/key.properties")
+if (ridexKeystorePropertiesFile.exists()) {
+    ridexKeystoreProperties.load(FileInputStream(ridexKeystorePropertiesFile))
+}
+
+"""
+    if "ridexKeystoreProperties" not in text:
+        text = preamble + text
+
+    signing_block = """
+    signingConfigs {
+        create("release") {
+            keyAlias = ridexKeystoreProperties["keyAlias"] as String?
+            keyPassword = ridexKeystoreProperties["keyPassword"] as String?
+            storeFile = ridexKeystoreProperties["storeFile"]?.let { file(it as String) }
+            storePassword = ridexKeystoreProperties["storePassword"] as String?
+        }
+    }
+"""
+    if "signingConfigs" not in text:
+        text = re.sub(r"(android\s*\{)", r"\1\n" + signing_block, text, count=1)
+
+    if "signingConfig = signingConfigs.getByName(\"release\")" not in text:
+        text = re.sub(
+            r"(release\s*\{)",
+            r'\1\n            signingConfig = signingConfigs.getByName("release")',
+            text,
+            count=1,
+        )
+
+    app_gradle_kts.write_text(text, encoding="utf-8")
+    print(f"patched signing -> {app_gradle_kts.relative_to(ROOT)}")
 
 
 def patch_ios() -> None:
@@ -85,14 +274,18 @@ def patch_ios() -> None:
             "<key>UIBackgroundModes</key>\n\t<array>\n\t\t<string>location</string>",
         )
 
-    # Allow local HTTP to LAN API during development
+    # Production uses HTTPS — prefer tight ATS (remove arbitrary loads if we added them)
+    if "NSAllowsArbitraryLoads" in text:
+        text = text.replace(
+            "\t\t<key>NSAllowsArbitraryLoads</key>\n\t\t<true/>\n",
+            "",
+        )
+
     if "NSAppTransportSecurity" not in text:
         ats = (
             "\t<key>NSAppTransportSecurity</key>\n"
             "\t<dict>\n"
             "\t\t<key>NSAllowsLocalNetworking</key>\n"
-            "\t\t<true/>\n"
-            "\t\t<key>NSAllowsArbitraryLoads</key>\n"
             "\t\t<true/>\n"
             "\t</dict>\n"
         )

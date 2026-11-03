@@ -54,16 +54,22 @@ jobs:
           EOF
           fi
 
-          APP_GRADLE="android/app/build.gradle"
-          if [ -f "$APP_GRADLE" ]; then
-            if grep -q "minSdkVersion" "$APP_GRADLE"; then
-              sed -i 's/minSdkVersion .*/minSdkVersion 24/' "$APP_GRADLE"
-            elif grep -q "minSdk " "$APP_GRADLE"; then
-              sed -i 's/minSdk .*/minSdk 24/' "$APP_GRADLE"
+          for APP_GRADLE in android/app/build.gradle android/app/build.gradle.kts; do
+            if [ -f "$APP_GRADLE" ]; then
+              if grep -q "minSdkVersion" "$APP_GRADLE"; then
+                sed -i 's/minSdkVersion .*/minSdkVersion 24/' "$APP_GRADLE"
+              elif grep -q "minSdk " "$APP_GRADLE"; then
+                sed -i 's/minSdk .*/minSdk 24/' "$APP_GRADLE"
+              fi
+              sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 35/' "$APP_GRADLE" || true
+              sed -i 's/compileSdk = [0-9]\+/compileSdk = 35/' "$APP_GRADLE" || true
+              sed -i 's/compileSdk [0-9]\+/compileSdk 35/' "$APP_GRADLE" || true
             fi
-            sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 35/' "$APP_GRADLE" || true
-            sed -i 's/compileSdk [0-9]\+/compileSdk 35/' "$APP_GRADLE" || true
-          fi
+          done
+
+      - name: Re-apply signing after Gradle harden
+        working-directory: ${{ github.workspace }}
+        run: python3 scripts/patch_mobile_native.py
 
       - name: Codegen (Isar / Freezed)
         run: dart run build_runner build --delete-conflicting-outputs
@@ -74,10 +80,41 @@ jobs:
           dart run flutter_launcher_icons
           dart run flutter_native_splash:create
 
-      - name: Build release APK (production VPS API)
+      - name: Build signed release APK (HTTPS production API)
         run: >
           flutter build apk --release --no-tree-shake-icons
-          --dart-define=API_BASE_URL=http://130.210.24.87
+          --dart-define=API_BASE_URL=https://130.210.24.87.sslip.io
+
+      - name: Verify release signature (not debug)
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -e
+          APK="$(find mobile/build/app/outputs -name '*.apk' -type f | head -n 1)"
+          echo "APK=$APK"
+          APKSIGNER=$(ls "$ANDROID_HOME"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          if [ -z "$APKSIGNER" ]; then
+            APKSIGNER=$(ls "$ANDROID_SDK_ROOT"/build-tools/*/apksigner 2>/dev/null | sort -V | tail -1)
+          fi
+          if [ -n "$APKSIGNER" ]; then
+            "$APKSIGNER" verify --print-certs "$APK" | tee /tmp/apk-certs.txt
+            if grep -qi "Android Debug" /tmp/apk-certs.txt; then
+              echo "ERROR: APK is still signed with the Android debug key — Play Protect will block/pause it"
+              exit 1
+            fi
+            if ! grep -qi "Signer\|DN:\|SHA" /tmp/apk-certs.txt; then
+              echo "ERROR: Could not read release signer from APK"
+              exit 1
+            fi
+            echo "Release signature check passed (not Android Debug)"
+          else
+            echo "apksigner not found; falling back to META-INF cert scan"
+            CERTS=$(unzip -l "$APK" | awk '/META-INF\/.*\.(RSA|DSA|EC)$/ {print $4}' | while read -r f; do unzip -p "$APK" "$f" | openssl pkcs7 -inform DER -print_certs 2>/dev/null; done || true)
+            echo "$CERTS" | head -40
+            if echo "$CERTS" | grep -qi "Android Debug"; then
+              echo "ERROR: APK is still signed with the Android debug key"
+              exit 1
+            fi
+          fi
 
       - name: Stage APK
         working-directory: ${{ github.workspace }}

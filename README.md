@@ -10,13 +10,13 @@ Premium **automobile community** and **group-ride** app.
 
 ## Run backend (LAN testing)
 
-The mobile app defaults to the production VPS **`http://130.210.24.87`** (nginx → API).
+The mobile app defaults to the production VPS **`https://130.210.24.87.sslip.io`** (nginx TLS → API).
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 # Health (local):  http://localhost:8000/health
-# Health (public): http://130.210.24.87/health
+# Health (public): https://130.210.24.87.sslip.io/health
 
 docker compose exec -T api /app/seed
 # Demo: alex@ridex.local / password123

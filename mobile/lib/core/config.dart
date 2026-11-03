@@ -5,12 +5,12 @@
 class ApiConfig {
   ApiConfig._();
 
-  /// Production host (Oracle VPS).
-  static const String lanHost = '130.210.24.87';
+  /// Production host (Oracle VPS via HTTPS / sslip.io).
+  static const String lanHost = '130.210.24.87.sslip.io';
 
   static const String apiBaseUrl = String.fromEnvironment(
     'API_BASE_URL',
-    defaultValue: 'http://130.210.24.87',
+    defaultValue: 'https://130.210.24.87.sslip.io',
   );
 
   static const String apiPrefix = '/api/v1';
