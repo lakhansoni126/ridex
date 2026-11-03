@@ -40,36 +40,40 @@ jobs:
       - name: Harden Android Gradle (Isar namespace + compileSdk 36)
         run: |
           set -e
+          PUB="${PUB_CACHE:-$HOME/.pub-cache}"
           echo "Android gradle files:"
           find android -maxdepth 3 \( -name 'build.gradle*' -o -name 'settings.gradle*' \) | sort
+          echo "local.properties:"; cat android/local.properties || true
+          echo "settings.gradle:"; cat android/settings.gradle 2>/dev/null || cat android/settings.gradle.kts 2>/dev/null || true
 
-          # Do NOT append root afterEvaluate — Flutter's evaluationDependsOn(':app')
-          # makes that fail with: "Cannot run Project.afterEvaluate when already evaluated".
-          # Patch isar_flutter_libs in pub-cache instead (same fix that worked historically).
-          ISAR_BG=$(find "$HOME/.pub-cache" -path "*isar_flutter_libs-*/android/build.gradle" 2>/dev/null | head -1 || true)
+          # Replace flutter.*SdkVersion refs in every plugin android gradle file.
+          # Avoids "Could not get unknown property 'flutter'" on :geolocator_android etc.
+          # Do NOT use root afterEvaluate — conflicts with evaluationDependsOn(':app').
+          while IFS= read -r -d '' f; do
+            sed -i \
+              -e 's/flutter\.compileSdkVersion/36/g' \
+              -e 's/flutter\.targetSdkVersion/34/g' \
+              -e 's/flutter\.minSdkVersion/24/g' \
+              "$f"
+          done < <(find "$PUB" -type f \( -name 'build.gradle' -o -name 'build.gradle.kts' \) -path '*/android/*' -print0 2>/dev/null)
+
+          ISAR_BG=$(find "$PUB" -path "*isar_flutter_libs-*/android/build.gradle" 2>/dev/null | head -1 || true)
           if [ -z "$ISAR_BG" ]; then
-            ISAR_BG=$(find "$FLUTTER_ROOT" "$PUB_CACHE" -path "*isar_flutter_libs-*/android/build.gradle" 2>/dev/null | head -1 || true)
-          fi
-          if [ -n "$ISAR_BG" ]; then
-            echo "Patching $ISAR_BG"
-            if ! grep -q 'namespace ' "$ISAR_BG"; then
-              sed -i '/^android {/a\    namespace "dev.isar.isar_flutter_libs"' "$ISAR_BG"
-            fi
-            sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$ISAR_BG" || true
-            grep -n 'namespace\|compileSdk' "$ISAR_BG" | head -10
-          else
-            echo "ERROR: isar_flutter_libs android/build.gradle not found"
-            find "$HOME/.pub-cache" -iname '*isar*' 2>/dev/null | head -40 || true
+            echo "ERROR: isar_flutter_libs android/build.gradle not found under $PUB"
             exit 1
           fi
+          echo "Patching Isar: $ISAR_BG"
+          if ! grep -q 'namespace ' "$ISAR_BG"; then
+            sed -i '/^android {/a\    namespace "dev.isar.isar_flutter_libs"' "$ISAR_BG"
+          fi
+          sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$ISAR_BG" || true
+          grep -n 'namespace\|compileSdk\|minSdk' "$ISAR_BG" | head -15
 
           for APP_GRADLE in android/app/build.gradle android/app/build.gradle.kts; do
             if [ -f "$APP_GRADLE" ]; then
-              sed -i 's/minSdkVersion .*/minSdkVersion 24/' "$APP_GRADLE" || true
-              sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' "$APP_GRADLE" || true
-              sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$APP_GRADLE" || true
-              sed -i 's/compileSdk = [0-9]\+/compileSdk = 36/' "$APP_GRADLE" || true
-              sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' "$APP_GRADLE" || true
+              sed -i 's/flutter\.compileSdkVersion/36/g' "$APP_GRADLE" || true
+              sed -i 's/flutter\.minSdkVersion/24/g' "$APP_GRADLE" || true
+              sed -i 's/flutter\.targetSdkVersion/34/g' "$APP_GRADLE" || true
             fi
           done
           echo "Harden complete"
