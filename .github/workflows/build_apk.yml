@@ -41,38 +41,26 @@ jobs:
         run: |
           set -e
           echo "Android gradle files:"
-          find android -maxdepth 3 -name 'build.gradle*' -o -name 'settings.gradle*' | sort
+          find android -maxdepth 3 \( -name 'build.gradle*' -o -name 'settings.gradle*' \) | sort
 
-          # Groovy root (Flutter <= ~3.27)
-          if [ -f android/build.gradle ]; then
-            cat >> android/build.gradle <<'EOF'
-
-          subprojects {
-              afterEvaluate { project ->
-                  if (project.hasProperty("android")) {
-                      project.android {
-                          if (namespace == null) {
-                              namespace project.group
-                          }
-                          compileSdkVersion 36
-                      }
-                  }
-              }
-          }
-          EOF
-            echo "Patched android/build.gradle"
-          fi
-
-          # Direct patch isar_flutter_libs if present in pub-cache (most reliable)
+          # Do NOT append root afterEvaluate — Flutter's evaluationDependsOn(':app')
+          # makes that fail with: "Cannot run Project.afterEvaluate when already evaluated".
+          # Patch isar_flutter_libs in pub-cache instead (same fix that worked historically).
           ISAR_BG=$(find "$HOME/.pub-cache" -path "*isar_flutter_libs-*/android/build.gradle" 2>/dev/null | head -1 || true)
+          if [ -z "$ISAR_BG" ]; then
+            ISAR_BG=$(find "$FLUTTER_ROOT" "$PUB_CACHE" -path "*isar_flutter_libs-*/android/build.gradle" 2>/dev/null | head -1 || true)
+          fi
           if [ -n "$ISAR_BG" ]; then
-            if ! grep -q "namespace " "$ISAR_BG"; then
-              sed -i '/android {/a\    namespace "dev.isar.isar_flutter_libs"' "$ISAR_BG"
-              echo "Injected namespace into $ISAR_BG"
+            echo "Patching $ISAR_BG"
+            if ! grep -q 'namespace ' "$ISAR_BG"; then
+              sed -i '/^android {/a\    namespace "dev.isar.isar_flutter_libs"' "$ISAR_BG"
             fi
             sed -i 's/compileSdkVersion [0-9]\+/compileSdkVersion 36/' "$ISAR_BG" || true
+            grep -n 'namespace\|compileSdk' "$ISAR_BG" | head -10
           else
-            echo "WARN: isar_flutter_libs build.gradle not found in pub-cache yet"
+            echo "ERROR: isar_flutter_libs android/build.gradle not found"
+            find "$HOME/.pub-cache" -iname '*isar*' 2>/dev/null | head -40 || true
+            exit 1
           fi
 
           for APP_GRADLE in android/app/build.gradle android/app/build.gradle.kts; do
@@ -84,6 +72,7 @@ jobs:
               sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' "$APP_GRADLE" || true
             fi
           done
+          echo "Harden complete"
 
 
       - name: Re-apply Android patches after Gradle harden
