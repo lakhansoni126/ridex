@@ -135,9 +135,18 @@ jobs:
           dart run flutter_native_splash:create
 
       - name: Build signed release APK (HTTPS production API)
-        run: >
-          flutter build apk --release --no-tree-shake-icons
-          --dart-define=API_BASE_URL=https://130.210.24.87.sslip.io
+        run: |
+          set -o pipefail
+          flutter build apk --release --no-tree-shake-icons \
+            --dart-define=API_BASE_URL=https://130.210.24.87.sslip.io 2>&1 | tee /tmp/flutter-build.log
+          status=${PIPESTATUS[0]}
+          if [ "$status" -ne 0 ]; then
+            echo "======== flutter build failed; last 120 lines ========"
+            tail -n 120 /tmp/flutter-build.log
+            echo "======== build.gradle.kts ========"
+            sed -n '1,120p' android/app/build.gradle.kts || true
+            exit "$status"
+          fi
 
       - name: Verify release signature (not debug)
         working-directory: ${{ github.workspace }}

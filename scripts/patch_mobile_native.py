@@ -196,10 +196,25 @@ def _inject_android_signing_kts(app_gradle_kts: Path) -> None:
 
     text = app_gradle_kts.read_text(encoding="utf-8")
 
-    preamble = """
-import java.util.Properties
-import java.io.FileInputStream
+    # Gradle requires `plugins {}` before other script logic (imports are ok).
+    # Strip any earlier broken preamble that was inserted above plugins {}.
+    text = re.sub(
+        r"(?s)^(?:\s*import java\.util\.Properties\s*"
+        r"|\s*import java\.io\.FileInputStream\s*"
+        r"|\s*val ridexKeystoreProperties[\s\S]*?\n\}\s*)+",
+        "",
+        text,
+    )
 
+    imports = (
+        "import java.util.Properties\n"
+        "import java.io.FileInputStream\n\n"
+    )
+    if "import java.util.Properties" not in text:
+        text = imports + text
+
+    # Load keystore props AFTER plugins {} block.
+    props_loader = """
 val ridexKeystoreProperties = Properties()
 val ridexKeystorePropertiesFile = rootProject.file("app/key.properties")
 if (ridexKeystorePropertiesFile.exists()) {
@@ -208,7 +223,15 @@ if (ridexKeystorePropertiesFile.exists()) {
 
 """
     if "ridexKeystoreProperties" not in text:
-        text = preamble + text
+        if re.search(r"plugins\s*\{[\s\S]*?\n\}", text):
+            text = re.sub(
+                r"(plugins\s*\{[\s\S]*?\n\})",
+                r"\1\n" + props_loader,
+                text,
+                count=1,
+            )
+        else:
+            text = props_loader + text
 
     signing_block = """
     signingConfigs {
@@ -217,6 +240,7 @@ if (ridexKeystorePropertiesFile.exists()) {
             keyPassword = ridexKeystoreProperties["keyPassword"] as String
             storeFile = file(ridexKeystoreProperties["storeFile"] as String)
             storePassword = ridexKeystoreProperties["storePassword"] as String
+            storeType = "PKCS12"
         }
     }
 """
