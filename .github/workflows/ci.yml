@@ -126,7 +126,22 @@ jobs:
           sed -n '1,120p' android/app/build.gradle.kts || sed -n '1,120p' android/app/build.gradle
 
       - name: Codegen (Isar / Freezed)
-        run: dart run build_runner build --delete-conflicting-outputs
+        run: |
+          set -o pipefail
+          dart run build_runner build --delete-conflicting-outputs 2>&1 | tee /tmp/codegen.log
+          test -f lib/features/ride/domain/ride_state.freezed.dart
+          test -f lib/database/models.g.dart
+          echo "Codegen outputs present"
+
+      - name: Analyze Dart (surface compile errors)
+        run: |
+          flutter analyze lib 2>&1 | tee /tmp/analyze.log || true
+          # Fail only on analyzer errors (ignore infos/warnings)
+          if grep -E "^[[:space:]]*error -" /tmp/analyze.log; then
+            echo "Analyzer reported errors"
+            exit 1
+          fi
+          echo "No analyzer errors"
 
       - name: Launcher icons & splash (best-effort)
         continue-on-error: true
@@ -141,12 +156,25 @@ jobs:
             --dart-define=API_BASE_URL=https://130.210.24.87.sslip.io 2>&1 | tee /tmp/flutter-build.log
           status=${PIPESTATUS[0]}
           if [ "$status" -ne 0 ]; then
-            echo "======== flutter build failed; last 120 lines ========"
-            tail -n 120 /tmp/flutter-build.log
+            echo "======== flutter build failed; last 200 lines ========"
+            tail -n 200 /tmp/flutter-build.log
             echo "======== build.gradle.kts ========"
-            sed -n '1,120p' android/app/build.gradle.kts || true
+            sed -n '1,160p' android/app/build.gradle.kts || true
             exit "$status"
           fi
+
+      - name: Upload build logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ridex-build-failure-logs
+          path: |
+            /tmp/flutter-build.log
+            /tmp/analyze.log
+            /tmp/codegen.log
+            mobile/android/app/build.gradle.kts
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Verify release signature (not debug)
         working-directory: ${{ github.workspace }}
