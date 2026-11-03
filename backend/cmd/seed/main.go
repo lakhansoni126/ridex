@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"log"
-	"os"
 	"time"
 
 	"github.com/google/uuid"
@@ -22,7 +21,9 @@ func main() {
 		log.Fatal(err)
 	}
 	defer pool.Close()
-	_ = db.Migrate(ctx, pool)
+	if err := db.Migrate(ctx, pool); err != nil {
+		log.Fatal(err)
+	}
 
 	svc := service.New(pool, cfg, ws.NewHub())
 	demos := []struct{ email, user, name, pass string }{
@@ -32,9 +33,10 @@ func main() {
 	}
 	var ids []uuid.UUID
 	for _, d := range demos {
-		tok, err := svc.Register(ctx, d.email, d.user, d.pass, d.name)
+		// Empty IP skips the per-IP abuse limits for the seeder.
+		tok, err := svc.Register(ctx, "", d.email, d.user, d.pass, d.name)
 		if err != nil {
-			u, e2 := svc.Login(ctx, d.email, d.pass)
+			u, e2 := svc.Login(ctx, "", d.email, d.pass)
 			if e2 != nil {
 				log.Println("skip", d.user, err)
 				continue
@@ -47,11 +49,11 @@ func main() {
 		log.Println("created:", d.user, "/", d.pass)
 	}
 	if len(ids) >= 2 {
-		_, _ = svc.RequestFriend(ctx, ids[0], "sam")
-		reqs, _ := svc.ListFriendRequests(ctx, ids[1])
-		for _, r := range reqs["incoming"] {
-			_ = svc.AcceptFriend(ctx, ids[1], r.ID)
+		if _, err := svc.RequestFriend(ctx, ids[0], "sam"); err == nil {
+			reqs, _ := svc.ListFriendRequests(ctx, ids[1])
+			for _, r := range reqs["incoming"] {
+				_, _ = svc.AcceptFriend(ctx, ids[1], r.ID)
+			}
 		}
 	}
-	os.Exit(0)
 }

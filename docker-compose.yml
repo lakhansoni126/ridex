@@ -21,6 +21,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     environment:
+      APP_ENV: ${APP_ENV:-development}
       DATABASE_URL: postgres://${POSTGRES_USER:-ridex}:${POSTGRES_PASSWORD:-ridex_dev_password}@db:5432/${POSTGRES_DB:-ridex}?sslmode=disable
       STORAGE_ROOT: /storage
       JWT_SECRET: ${JWT_SECRET:-change-me-to-a-long-random-string}

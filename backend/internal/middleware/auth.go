@@ -11,6 +11,7 @@ import (
 
 const UserIDKey = "userID"
 
+// Auth requires a valid access token belonging to an active (not deleted) user.
 func Auth(svc *service.Svc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		h := c.GetHeader("Authorization")
@@ -18,7 +19,7 @@ func Auth(svc *service.Svc) gin.HandlerFunc {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"detail": "missing token"})
 			return
 		}
-		uid, err := svc.ParseAccess(strings.TrimPrefix(h, "Bearer "))
+		uid, err := svc.AuthenticateAccess(c.Request.Context(), strings.TrimPrefix(h, "Bearer "))
 		if err != nil {
 			c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"detail": "invalid token"})
 			return
@@ -30,15 +31,4 @@ func Auth(svc *service.Svc) gin.HandlerFunc {
 
 func UserID(c *gin.Context) uuid.UUID {
 	return c.MustGet(UserIDKey).(uuid.UUID)
-}
-
-func OptionalQueryToken(svc *service.Svc) gin.HandlerFunc {
-	return func(c *gin.Context) {
-		if t := c.Query("token"); t != "" {
-			if uid, err := svc.ParseAccess(t); err == nil {
-				c.Set(UserIDKey, uid)
-			}
-		}
-		c.Next()
-	}
 }
