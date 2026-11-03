@@ -10,19 +10,17 @@ Premium **automobile community** and **group-ride** app.
 
 ## Run backend (LAN testing)
 
-This machine’s Wi‑Fi IP is baked into the mobile app as **`192.168.29.37:8000`**.
+The mobile app defaults to the production VPS **`http://130.210.24.87`** (nginx → API).
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
-# Health (PC):   http://localhost:8000/health
-# Health (phone): http://192.168.29.37:8000/health
+# Health (local):  http://localhost:8000/health
+# Health (public): http://130.210.24.87/health
 
 docker compose exec -T api /app/seed
 # Demo: alex@ridex.local / password123
 ```
-
-Phone and PC must be on the same Wi‑Fi. Windows Firewall must allow inbound TCP **8000**.
 
 API: `/api/v1` · WS: `/ws/rides/{id}`, `/ws/location-shares`.
 

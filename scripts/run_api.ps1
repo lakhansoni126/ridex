@@ -12,5 +12,5 @@ $env:API_PORT = "8000"
 $env:CORS_ORIGINS = "*"
 $env:JWT_SECRET = if ($env:JWT_SECRET) { $env:JWT_SECRET } else { "change-me-to-a-long-random-string" }
 
-Write-Host "RideX API -> http://0.0.0.0:8000 (LAN http://192.168.29.37:8000)"
+Write-Host "RideX API -> http://0.0.0.0:8000 (prod http://130.210.24.87)"
 go run ./cmd/api
